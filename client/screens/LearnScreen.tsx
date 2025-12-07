@@ -240,6 +240,7 @@ export default function LearnScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp>();
   const { currentLesson, selectedVoice, isExtending, addSection, setIsExtending, setError } = useLessonStore();
+  const [localLesson, setLocalLesson] = useState(currentLesson);
   const [isExtendingLocal, setIsExtendingLocal] = useState(false);
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
   const [showAllPhonetics, setShowAllPhonetics] = useState(false);
@@ -260,6 +261,14 @@ export default function LearnScreen() {
   const handleAddSectionLocal = useCallback((section: ParagraphSection) => {
     setIsAddingSectionLocal(true);
     addSection(section);
+    // Also update local lesson copy immediately so the UI will reflect the new section
+    setLocalLesson((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        sections: [...prev.sections, section],
+      };
+    });
     // Wait for next frame so UI has a chance to render the updated store state
     // before we clear the local adding flag (this helps animations and prevents
     // the flag from flipping too quickly which can hide UI updates).
@@ -267,6 +276,10 @@ export default function LearnScreen() {
       setIsAddingSectionLocal(false);
     });
   }, [addSection]);
+
+  React.useEffect(() => {
+    setLocalLesson(currentLesson);
+  }, [currentLesson]);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
@@ -347,7 +360,7 @@ export default function LearnScreen() {
   };
 
   const handlePlayAudio = async () => {
-    if (!currentLesson || currentLesson.sections.length === 0) return;
+    if (!currentLesson || (localLesson ?? currentLesson).sections.length === 0) return;
     
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -356,7 +369,7 @@ export default function LearnScreen() {
     setIsLoadingAudio(true);
     setAudioError(null);
 
-    const allParagraphs = currentLesson.sections.map(s => s.paragraph).join(" ");
+    const allParagraphs = (localLesson ?? currentLesson).sections.map(s => s.paragraph).join(" ");
 
     try {
       const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
@@ -546,7 +559,7 @@ export default function LearnScreen() {
     }, 50);
 
     try {
-      const existingParagraphs = currentLesson.sections.map(s => s.paragraph);
+      const existingParagraphs = (localLesson ?? currentLesson).sections.map(s => s.paragraph);
       
       const response = await apiRequest("POST", "/api/extend-lesson", {
         topic: currentLesson.topic,
@@ -629,7 +642,10 @@ export default function LearnScreen() {
     );
   }
 
-  const totalWords = currentLesson.sections.reduce((sum, s) => sum + s.words.length, 0);
+  const totalWords = (localLesson ?? currentLesson).sections.reduce(
+    (sum, s) => sum + s.words.length,
+    0
+  );
 
   return (
     <ThemedView style={styles.container}>
@@ -751,7 +767,7 @@ export default function LearnScreen() {
           Tap bold words to see pronunciation
         </ThemedText>
 
-        {currentLesson.sections.map((section, index) => (
+        {(localLesson ?? currentLesson).sections.map((section, index) => (
           <ParagraphDisplay
             key={`section-${index}`}
             section={section}
@@ -770,7 +786,7 @@ export default function LearnScreen() {
             <View style={styles.sectionHeader}>
               <ActivityIndicator size="small" color={theme.primary} />
               <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
-                Generating Paragraph {currentLesson.sections.length + 1}...
+                Generating Paragraph {(localLesson ?? currentLesson).sections.length + 1}...
               </ThemedText>
             </View>
             <View style={styles.paragraph}>
