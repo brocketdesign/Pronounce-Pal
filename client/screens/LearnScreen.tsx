@@ -759,25 +759,32 @@ export default function LearnScreen() {
           onPress={handleExtendLesson}
           disabled={isExtending}
           hitSlop={Platform.OS === "web" ? 12 : 8}
-          style={[
+          style={({ pressed }) => [
             styles.extendButton,
             {
-              backgroundColor: theme.backgroundSecondary,
-              borderColor: theme.border,
-              opacity: isExtending ? 0.7 : 1,
+              backgroundColor: isExtending 
+                ? theme.primary 
+                : pressed 
+                  ? theme.highlight 
+                  : theme.backgroundSecondary,
+              borderColor: isExtending ? theme.primary : theme.border,
+              transform: [{ scale: pressed && !isExtending ? 0.98 : 1 }],
             },
           ]}
         >
           {isExtending ? (
-            <ActivityIndicator size="small" color={theme.primary} />
+            <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Feather name="plus-circle" size={20} color={theme.primary} />
           )}
           <ThemedText
             type="body"
-            style={{ color: theme.primary, fontWeight: "600" }}
+            style={{ 
+              color: isExtending ? "#FFFFFF" : theme.primary, 
+              fontWeight: "600" 
+            }}
           >
-            {isExtending ? "Generating..." : "Extend Lesson"}
+            {isExtending ? "Generating new paragraph..." : "Extend Lesson"}
           </ThemedText>
         </Pressable>
       </ScrollView>

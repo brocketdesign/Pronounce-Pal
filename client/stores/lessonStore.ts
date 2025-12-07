@@ -55,6 +55,7 @@ let globalState: {
   isLoading: boolean;
   isExtending: boolean;
   error: string | null;
+  version: number;
 } = {
   currentLesson: null,
   recentTopics: [],
@@ -63,19 +64,21 @@ let globalState: {
   isLoading: false,
   isExtending: false,
   error: null,
+  version: 0,
 };
 
 const listeners = new Set<() => void>();
 
 function notifyListeners() {
+  globalState = { ...globalState, version: globalState.version + 1 };
   listeners.forEach((listener) => listener());
 }
 
 export function useLessonStore(): LessonStore {
-  const [, forceUpdate] = useState({});
+  const [, setVersion] = useState(globalState.version);
 
   useEffect(() => {
-    const listener = () => forceUpdate({});
+    const listener = () => setVersion(globalState.version);
     listeners.add(listener);
     return () => {
       listeners.delete(listener);
