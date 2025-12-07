@@ -27,11 +27,9 @@ interface WordItemProps {
   isPlaying: boolean;
   isAnyPlaying: boolean;
   onPlayAudio: (word: string) => void;
-  onToggleSaved?: (word: WordPhonetic) => void;
-  isSaved?: boolean;
 }
 
-function WordItem({ item, isPlaying, isAnyPlaying, onPlayAudio, onToggleSaved, isSaved }: WordItemProps) {
+function WordItem({ item, isPlaying, isAnyPlaying, onPlayAudio }: WordItemProps) {
   const { theme } = useTheme();
 
   return (
@@ -47,35 +45,24 @@ function WordItem({ item, isPlaying, isAnyPlaying, onPlayAudio, onToggleSaved, i
           {item.phonetic}
         </ThemedText>
       </View>
-      <View style={{ flexDirection: "row" }}>
-        <Pressable
-          onPress={() => onPlayAudio(item.word)}
-          disabled={isAnyPlaying}
-          style={[
-            styles.audioButton,
-            {
-              backgroundColor: isPlaying ? `${theme.primary}15` : theme.backgroundSecondary,
-              borderWidth: isPlaying ? 1 : 0,
-              borderColor: theme.primary,
-            },
-          ]}
-        >
-          {isPlaying ? (
-            <ActivityIndicator size="small" color={theme.primary} />
-          ) : (
-            <Feather name="volume-2" size={18} color={theme.textSecondary} style={{ opacity: isAnyPlaying ? 0.5 : 1 }} />
-          )}
-        </Pressable>
-        <Pressable
-          onPress={() => onToggleSaved?.(item)}
-          style={[
-            styles.favoriteButton,
-            { backgroundColor: isSaved ? `${theme.primary}15` : theme.backgroundSecondary, marginLeft: Spacing.sm },
-          ]}
-        >
-          <Feather name="heart" size={18} color={isSaved ? theme.primary : theme.textSecondary} />
-        </Pressable>
-      </View>
+      <Pressable
+        onPress={() => onPlayAudio(item.word)}
+        disabled={isAnyPlaying}
+        style={[
+          styles.audioButton,
+          {
+            backgroundColor: isPlaying ? `${theme.primary}15` : theme.backgroundSecondary,
+            borderWidth: isPlaying ? 1 : 0,
+            borderColor: theme.primary,
+          },
+        ]}
+      >
+        {isPlaying ? (
+          <ActivityIndicator size="small" color={theme.primary} />
+        ) : (
+          <Feather name="volume-2" size={18} color={theme.textSecondary} style={{ opacity: isAnyPlaying ? 0.5 : 1 }} />
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -84,7 +71,7 @@ export default function WordsListScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const { currentLesson, selectedVoice, toggleSavedWord, isSavedWord } = useLessonStore();
+  const { currentLesson, selectedVoice } = useLessonStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [playingWord, setPlayingWord] = useState<string | null>(null);
   const [wordAudioUri, setWordAudioUri] = useState<string | null>(null);
@@ -265,8 +252,6 @@ export default function WordsListScreen() {
         isPlaying={playingWord === wordData.word}
         isAnyPlaying={playingWord !== null}
         onPlayAudio={handlePlayWordAudio}
-        onToggleSaved={toggleSavedWord}
-        isSaved={isSavedWord(wordData.word)}
       />
     );
   };
@@ -388,13 +373,6 @@ const styles = StyleSheet.create({
   },
   phonetic: {},
   audioButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  favoriteButton: {
     width: 40,
     height: 40,
     borderRadius: 20,

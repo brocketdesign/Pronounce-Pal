@@ -6,14 +6,12 @@ import { Platform, StyleSheet } from "react-native";
 import HomeScreen from "@/screens/HomeScreen";
 import LearnScreen from "@/screens/LearnScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
-import SavedWordsScreen from "@/screens/SavedWordsScreen";
 import { useTheme } from "@/hooks/useTheme";
 
 export type MainTabParamList = {
   HomeTab: undefined;
   LearnTab: undefined;
   SettingsTab: undefined;
-  SavedTab: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -74,16 +72,6 @@ export default function MainTabNavigator() {
           title: "Settings",
           tabBarIcon: ({ color, size }) => (
             <Feather name="settings" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="SavedTab"
-        component={SavedWordsScreen}
-        options={{
-          title: "Saved",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="bookmark" size={size} color={color} />
           ),
         }}
       />

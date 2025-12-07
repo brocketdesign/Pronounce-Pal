@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from "react";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface WordPhonetic {
   word: string;
@@ -46,10 +45,6 @@ interface LessonStore {
   setIsExtending: (extending: boolean) => void;
   setError: (error: string | null) => void;
   clearLesson: () => void;
-  savedWords: WordPhonetic[];
-  toggleSavedWord: (word: WordPhonetic) => void;
-  removeSavedWord: (word: string) => void;
-  isSavedWord: (word: string) => boolean;
 }
 
 let globalState: {
@@ -61,7 +56,6 @@ let globalState: {
   isExtending: boolean;
   error: string | null;
   version: number;
-  savedWords: WordPhonetic[];
 } = {
   currentLesson: null,
   recentTopics: [],
@@ -71,7 +65,6 @@ let globalState: {
   isExtending: false,
   error: null,
   version: 0,
-  savedWords: [],
 };
 
 const listeners = new Set<() => void>();
@@ -95,31 +88,6 @@ export function useLessonStore(): LessonStore {
   const setCurrentLesson = useCallback((lesson: Lesson | null) => {
     globalState = { ...globalState, currentLesson: lesson };
     notifyListeners();
-  }, []);
-
-  const STORAGE_KEY = "savedWords:v1";
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const json = await AsyncStorage.getItem(STORAGE_KEY);
-        if (json) {
-          const parsed = JSON.parse(json) as WordPhonetic[];
-          globalState = { ...globalState, savedWords: parsed };
-          notifyListeners();
-        }
-      } catch (e) {
-        // ignore
-      }
-    })();
-  }, []);
-
-  const persistSavedWords = useCallback(async (words: WordPhonetic[]) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(words));
-    } catch (e) {
-      // ignore
-    }
   }, []);
 
   const addRecentTopic = useCallback((topic: string) => {
@@ -179,27 +147,6 @@ export function useLessonStore(): LessonStore {
     notifyListeners();
   }, []);
 
-  const toggleSavedWord = useCallback((word: WordPhonetic) => {
-    const exists = globalState.savedWords.some((w) => w.word === word.word);
-    const newSaved = exists
-      ? globalState.savedWords.filter((w) => w.word !== word.word)
-      : [...globalState.savedWords, word];
-    globalState = { ...globalState, savedWords: newSaved };
-    persistSavedWords(newSaved);
-    notifyListeners();
-  }, [persistSavedWords]);
-
-  const removeSavedWord = useCallback((word: string) => {
-    const newSaved = globalState.savedWords.filter((w) => w.word !== word);
-    globalState = { ...globalState, savedWords: newSaved };
-    persistSavedWords(newSaved);
-    notifyListeners();
-  }, [persistSavedWords]);
-
-  const isSavedWord = useCallback((word: string) => {
-    return globalState.savedWords.some((w) => w.word === word);
-  }, []);
-
   const clearLesson = useCallback(() => {
     globalState = { ...globalState, currentLesson: null, error: null };
     notifyListeners();
@@ -222,9 +169,5 @@ export function useLessonStore(): LessonStore {
     setIsExtending,
     setError,
     clearLesson,
-    savedWords: globalState.savedWords,
-    toggleSavedWord,
-    removeSavedWord,
-    isSavedWord,
   };
 }
