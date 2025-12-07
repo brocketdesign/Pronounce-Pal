@@ -16,7 +16,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAudioPlayer } from "expo-audio";
-import { File, Paths } from "expo-file-system";
+import * as FileSystem from "expo-file-system";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -274,11 +274,12 @@ export default function LearnScreen() {
         reader.onloadend = async () => {
           try {
             const base64Data = (reader.result as string).split(",")[1];
-            const file = new File(Paths.cache, `tts_audio_${Date.now()}.mp3`);
-            file.create({ overwrite: true });
-            file.write(base64Data, { encoding: 'base64' });
+            const fileUri = FileSystem.cacheDirectory + `tts_audio_${Date.now()}.mp3`;
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
             
-            setAudioUri(file.uri);
+            setAudioUri(fileUri);
             setIsPlaying(true);
             setShouldPlay(true);
           } catch (err: any) {
@@ -363,11 +364,12 @@ export default function LearnScreen() {
         reader.onloadend = async () => {
           try {
             const base64Data = (reader.result as string).split(",")[1];
-            const file = new File(Paths.cache, `word_audio_${Date.now()}.mp3`);
-            file.create({ overwrite: true });
-            file.write(base64Data, { encoding: 'base64' });
+            const fileUri = FileSystem.cacheDirectory + `word_audio_${Date.now()}.mp3`;
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
             
-            setWordAudioUri(file.uri);
+            setWordAudioUri(fileUri);
             setShouldPlayWord(true);
           } catch {
             setPlayingWord(null);

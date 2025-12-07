@@ -14,7 +14,7 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAudioPlayer } from "expo-audio";
-import { File, Paths } from "expo-file-system";
+import * as FileSystem from "expo-file-system";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -36,6 +36,7 @@ export default function SettingsScreen() {
   const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
   const [playingVoiceSample, setPlayingVoiceSample] = useState<VoiceOption | null>(null);
   const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [shouldPlaySample, setShouldPlaySample] = useState(false);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
   
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
@@ -105,6 +106,13 @@ export default function SettingsScreen() {
       }
     };
   }, []);
+
+  React.useEffect(() => {
+    if (shouldPlaySample && audioUri && player && Platform.OS !== "web") {
+      player.play();
+      setShouldPlaySample(false);
+    }
+  }, [audioUri, shouldPlaySample, player]);
 
   React.useEffect(() => {
     if (Platform.OS !== "web" && player && playingVoiceSample) {
@@ -181,14 +189,13 @@ export default function SettingsScreen() {
         reader.onloadend = async () => {
           try {
             const base64Data = (reader.result as string).split(",")[1];
-            const file = new File(Paths.cache, `voice_sample_${voiceId}_${Date.now()}.mp3`);
-            file.create({ overwrite: true });
-            file.write(base64Data, { encoding: 'base64' });
+            const fileUri = FileSystem.cacheDirectory + `voice_sample_${voiceId}_${Date.now()}.mp3`;
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
             
-            setAudioUri(file.uri);
-            if (player) {
-              player.play();
-            }
+            setAudioUri(fileUri);
+            setShouldPlaySample(true);
           } catch {
             setPlayingVoiceSample(null);
           }
