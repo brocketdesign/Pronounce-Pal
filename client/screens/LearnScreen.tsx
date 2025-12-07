@@ -260,8 +260,12 @@ export default function LearnScreen() {
   const handleAddSectionLocal = useCallback((section: ParagraphSection) => {
     setIsAddingSectionLocal(true);
     addSection(section);
-    // ensure UI is updated; the store will be notified immediately
-    setIsAddingSectionLocal(false);
+    // Wait for next frame so UI has a chance to render the updated store state
+    // before we clear the local adding flag (this helps animations and prevents
+    // the flag from flipping too quickly which can hide UI updates).
+    requestAnimationFrame(() => {
+      setIsAddingSectionLocal(false);
+    });
   }, [addSection]);
   const scrollViewRef = useRef<ScrollView>(null);
 
