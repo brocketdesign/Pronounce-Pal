@@ -100,11 +100,14 @@ Make sure to include common and challenging words for pronunciation. The phoneti
 
   app.post("/api/text-to-speech", async (req, res) => {
     try {
-      const { text } = req.body;
+      const { text, voice = "alloy" } = req.body;
 
       if (!text) {
         return res.status(400).json({ message: "Text is required" });
       }
+
+      const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
+      const selectedVoice = validVoices.includes(voice) ? voice : "alloy";
 
       const apiKey = process.env.OPENAI_API_KEY;
 
@@ -116,7 +119,7 @@ Make sure to include common and challenging words for pronunciation. The phoneti
 
       const mp3Response = await openai.audio.speech.create({
         model: "tts-1",
-        voice: "alloy",
+        voice: selectedVoice as "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer",
         input: text,
       });
 
