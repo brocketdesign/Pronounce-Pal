@@ -367,7 +367,11 @@ export default function SettingsScreen() {
                       </View>
                     </View>
                     <Pressable
-                      onPress={() => handlePlayVoiceSample(voice.id)}
+                      onPress={() => {
+                        // Select the voice when the play button is pressed as well
+                        handleSelectVoice(voice.id);
+                        handlePlayVoiceSample(voice.id);
+                      }}
                       disabled={playingVoiceSample !== null}
                       testID={`play-voice-${voice.id}`}
                       style={[
