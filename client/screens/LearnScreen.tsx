@@ -255,6 +255,14 @@ export default function LearnScreen() {
   const [shouldPlayWord, setShouldPlayWord] = useState(false);
   const [extendError, setExtendError] = useState<string | null>(null);
   const [extendSuccess, setExtendSuccess] = useState(false);
+  const [isAddingSectionLocal, setIsAddingSectionLocal] = useState(false);
+
+  const handleAddSectionLocal = useCallback((section: ParagraphSection) => {
+    setIsAddingSectionLocal(true);
+    addSection(section);
+    // ensure UI is updated; the store will be notified immediately
+    setIsAddingSectionLocal(false);
+  }, [addSection]);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
@@ -553,7 +561,8 @@ export default function LearnScreen() {
 
       if (data.paragraph && data.words) {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        addSection({
+        // Wrap addSection to show local UI state while adding
+        handleAddSectionLocal({
           paragraph: data.paragraph,
           words: data.words,
         });
@@ -767,6 +776,17 @@ export default function LearnScreen() {
             </View>
           </View>
         )}
+
+        {isAddingSectionLocal ? (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
+                Adding paragraph...
+              </ThemedText>
+            </View>
+          </View>
+        ) : null}
 
         {extendSuccess ? (
           <View style={[styles.successBanner, { backgroundColor: `${theme.success}15`, marginTop: Spacing.lg, borderColor: theme.success, borderWidth: 1 }]}>
