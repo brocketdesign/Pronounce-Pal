@@ -240,6 +240,7 @@ export default function LearnScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp>();
   const { currentLesson, selectedVoice, isExtending, addSection, setIsExtending, setError } = useLessonStore();
+  const isExtendingRef = useRef(false);
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
   const [showAllPhonetics, setShowAllPhonetics] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -516,14 +517,21 @@ export default function LearnScreen() {
   };
 
   const handleExtendLesson = async () => {
-    if (!currentLesson || isExtending) return;
+    if (!currentLesson || isExtendingRef.current || isExtending) return;
     
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
+    // immediately mark local ref to prevent re-entrancy before store updates
+    isExtendingRef.current = true;
     setIsExtending(true);
     setExtendError(null);
+
+    // ensure the loading placeholder is scrolled into view so users see feedback
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 50);
 
     try {
       const existingParagraphs = currentLesson.sections.map(s => s.paragraph);
@@ -563,6 +571,8 @@ export default function LearnScreen() {
       setExtendError(err.message || "Failed to extend lesson");
     } finally {
       setIsExtending(false);
+      // clear local ref after the store has been updated
+      isExtendingRef.current = false;
     }
   };
 
