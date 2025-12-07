@@ -326,65 +326,73 @@ export default function SettingsScreen() {
           </ThemedText>
 
           <View style={styles.voiceCardsContainer}>
-            {VOICE_OPTIONS.map((voice) => (
-              <Pressable
-                key={voice.id}
-                onPress={() => handleSelectVoice(voice.id)}
-                style={[
-                  styles.voiceCard,
-                  { 
-                    backgroundColor: theme.backgroundSecondary,
-                    borderColor: selectedVoice === voice.id ? theme.primary : 'transparent',
-                    borderWidth: selectedVoice === voice.id ? 2 : 0,
-                  },
-                ]}
-              >
-                <View style={styles.voiceCardContent}>
-                  <View style={styles.voiceCardLeft}>
-                    {selectedVoice === voice.id ? (
-                      <View style={[styles.voiceCheckIcon, { backgroundColor: theme.primary }]}>
-                        <Feather name="check" size={12} color="#FFFFFF" />
+            {VOICE_OPTIONS.map((voice) => {
+              const isSelected = selectedVoice === voice.id;
+              return (
+                <Pressable
+                  key={voice.id}
+                  onPress={() => handleSelectVoice(voice.id)}
+                  testID={`voice-card-${voice.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${voice.name} voice`}
+                  style={({ pressed }) => [
+                    styles.voiceCard,
+                    { 
+                      backgroundColor: theme.backgroundSecondary,
+                      borderColor: isSelected ? theme.primary : 'transparent',
+                      borderWidth: 2,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <View style={styles.voiceCardContent}>
+                    <View style={styles.voiceCardLeft}>
+                      {isSelected ? (
+                        <View style={[styles.voiceCheckIcon, { backgroundColor: theme.primary }]}>
+                          <Feather name="check" size={12} color="#FFFFFF" />
+                        </View>
+                      ) : (
+                        <View style={[styles.voiceCheckIcon, { backgroundColor: theme.backgroundDefault }]}>
+                          <Feather name="mic" size={12} color={theme.textSecondary} />
+                        </View>
+                      )}
+                      <View>
+                        <ThemedText type="body" style={{ fontWeight: '600' }}>
+                          {voice.name}
+                        </ThemedText>
+                        <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                          {voice.description}
+                        </ThemedText>
                       </View>
-                    ) : (
-                      <View style={[styles.voiceCheckIcon, { backgroundColor: theme.backgroundDefault }]}>
-                        <Feather name="mic" size={12} color={theme.textSecondary} />
-                      </View>
-                    )}
-                    <View>
-                      <ThemedText type="body" style={{ fontWeight: '600' }}>
-                        {voice.name}
-                      </ThemedText>
-                      <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                        {voice.description}
-                      </ThemedText>
                     </View>
+                    <Pressable
+                      onPress={() => handlePlayVoiceSample(voice.id)}
+                      disabled={playingVoiceSample !== null}
+                      testID={`play-voice-${voice.id}`}
+                      style={[
+                        styles.playVoiceButton,
+                        { 
+                          backgroundColor: playingVoiceSample === voice.id 
+                            ? theme.primary 
+                            : theme.backgroundDefault 
+                        },
+                      ]}
+                      hitSlop={8}
+                    >
+                      {playingVoiceSample === voice.id ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Feather 
+                          name="play" 
+                          size={16} 
+                          color={theme.primary} 
+                        />
+                      )}
+                    </Pressable>
                   </View>
-                  <Pressable
-                    onPress={() => handlePlayVoiceSample(voice.id)}
-                    disabled={playingVoiceSample !== null}
-                    style={[
-                      styles.playVoiceButton,
-                      { 
-                        backgroundColor: playingVoiceSample === voice.id 
-                          ? theme.primary 
-                          : theme.backgroundDefault 
-                      },
-                    ]}
-                    hitSlop={8}
-                  >
-                    {playingVoiceSample === voice.id ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Feather 
-                        name="play" 
-                        size={16} 
-                        color={theme.primary} 
-                      />
-                    )}
-                  </Pressable>
-                </View>
-              </Pressable>
-            ))}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
