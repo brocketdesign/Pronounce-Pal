@@ -75,10 +75,10 @@ function notifyListeners() {
 }
 
 export function useLessonStore(): LessonStore {
-  const [, setVersion] = useState(globalState.version);
+  const [, setVersion] = useState(0);
 
   useEffect(() => {
-    const listener = () => setVersion(globalState.version);
+    const listener = () => setVersion(v => v + 1);
     listeners.add(listener);
     return () => {
       listeners.delete(listener);

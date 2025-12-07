@@ -86,7 +86,11 @@ export default function GenerateLessonScreen() {
             {
               name: "Main",
               state: {
-                routes: [{ name: "LearnTab" }],
+                routes: [
+                  { name: "HomeTab" },
+                  { name: "LearnTab" },
+                  { name: "SettingsTab" },
+                ],
                 index: 1,
               },
             },
