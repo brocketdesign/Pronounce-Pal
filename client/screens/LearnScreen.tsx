@@ -253,6 +253,8 @@ export default function LearnScreen() {
   const [wordAudioUri, setWordAudioUri] = useState<string | null>(null);
   const [shouldPlayWord, setShouldPlayWord] = useState(false);
   const [extendError, setExtendError] = useState<string | null>(null);
+  const [extendSuccess, setExtendSuccess] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
   const wordPlayer = useAudioPlayer(wordAudioUri ? { uri: wordAudioUri } : null);
@@ -548,6 +550,11 @@ export default function LearnScreen() {
           words: data.words,
         });
         console.log("Section added successfully");
+        setExtendSuccess(true);
+        setTimeout(() => setExtendSuccess(false), 3000);
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 300);
       } else {
         throw new Error("Invalid response data - missing paragraph or words");
       }
@@ -599,6 +606,7 @@ export default function LearnScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={[
           styles.contentContainer,
@@ -729,6 +737,15 @@ export default function LearnScreen() {
           />
         ))}
 
+        {extendSuccess ? (
+          <View style={[styles.successBanner, { backgroundColor: `${theme.success}15`, marginTop: Spacing.lg, borderColor: theme.success, borderWidth: 1 }]}>
+            <Feather name="check-circle" size={14} color={theme.success} />
+            <ThemedText type="small" style={{ color: theme.success, flex: 1 }}>
+              New paragraph added!
+            </ThemedText>
+          </View>
+        ) : null}
+
         {extendError ? (
           <View style={[styles.errorBanner, { backgroundColor: `${theme.error}15`, marginTop: Spacing.lg }]}>
             <Feather name="alert-circle" size={14} color={theme.error} />
@@ -848,6 +865,15 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  successBanner: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: Spacing.md,
