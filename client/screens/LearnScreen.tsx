@@ -737,6 +737,22 @@ export default function LearnScreen() {
           />
         ))}
 
+        {isExtending && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
+                Generating Paragraph {currentLesson.sections.length + 1}...
+              </ThemedText>
+            </View>
+            <View style={styles.paragraph}>
+              <ThemedText style={{ color: theme.textSecondary }}>
+                Please wait while we create a new paragraph for your lesson.
+              </ThemedText>
+            </View>
+          </View>
+        )}
+
         {extendSuccess ? (
           <View style={[styles.successBanner, { backgroundColor: `${theme.success}15`, marginTop: Spacing.lg, borderColor: theme.success, borderWidth: 1 }]}>
             <Feather name="check-circle" size={14} color={theme.success} />
