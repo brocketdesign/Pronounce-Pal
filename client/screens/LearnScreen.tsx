@@ -240,7 +240,7 @@ export default function LearnScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp>();
   const { currentLesson, selectedVoice, isExtending, addSection, setIsExtending, setError } = useLessonStore();
-  const isExtendingRef = useRef(false);
+  const [isExtendingLocal, setIsExtendingLocal] = useState(false);
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
   const [showAllPhonetics, setShowAllPhonetics] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -517,14 +517,14 @@ export default function LearnScreen() {
   };
 
   const handleExtendLesson = async () => {
-    if (!currentLesson || isExtendingRef.current || isExtending) return;
+    if (!currentLesson || isExtendingLocal || isExtending) return;
     
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
-    // immediately mark local ref to prevent re-entrancy before store updates
-    isExtendingRef.current = true;
+    // immediately mark local state to prevent re-entrancy before store updates
+    setIsExtendingLocal(true);
     setIsExtending(true);
     setExtendError(null);
 
@@ -571,8 +571,8 @@ export default function LearnScreen() {
       setExtendError(err.message || "Failed to extend lesson");
     } finally {
       setIsExtending(false);
-      // clear local ref after the store has been updated
-      isExtendingRef.current = false;
+      // clear local state after the store has been updated
+      setIsExtendingLocal(false);
     }
   };
 
