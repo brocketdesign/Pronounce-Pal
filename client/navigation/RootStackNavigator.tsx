@@ -1,13 +1,15 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
+import TopicCustomizationScreen from "@/screens/TopicCustomizationScreen";
 import GenerateLessonScreen from "@/screens/GenerateLessonScreen";
 import WordsListScreen from "@/screens/WordsListScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type RootStackParamList = {
   Main: undefined;
-  GenerateLesson: { topic: string; icon: string };
+  TopicCustomization: { topic: string; icon: string };
+  GenerateLesson: { topic: string; icon: string; tags?: string[]; details?: string };
   WordsList: undefined;
 };
 
@@ -22,6 +24,14 @@ export default function RootStackNavigator() {
         name="Main"
         component={MainTabNavigator}
         options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TopicCustomization"
+        component={TopicCustomizationScreen}
+        options={{
+          presentation: "modal",
+          headerTitle: "Customize Lesson",
+        }}
       />
       <Stack.Screen
         name="GenerateLesson"

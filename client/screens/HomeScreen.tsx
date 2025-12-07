@@ -98,7 +98,7 @@ export default function HomeScreen() {
   );
 
   const handleTopicPress = (topic: typeof TOPICS[0]) => {
-    navigation.navigate("GenerateLesson", { topic: topic.name, icon: topic.icon });
+    navigation.navigate("TopicCustomization", { topic: topic.name, icon: topic.icon });
   };
 
   return (

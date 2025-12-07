@@ -29,7 +29,7 @@ export default function GenerateLessonScreen() {
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
-  const { topic, icon } = route.params;
+  const { topic, icon, tags = [], details = "" } = route.params;
 
   const {
     setCurrentLesson,
@@ -53,6 +53,8 @@ export default function GenerateLessonScreen() {
     try {
       const response = await apiRequest("POST", "/api/generate-lesson", {
         topic,
+        tags,
+        details,
       });
 
       const data = await response.json();

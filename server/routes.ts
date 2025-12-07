@@ -5,7 +5,7 @@ import OpenAI from "openai";
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/generate-lesson", async (req, res) => {
     try {
-      const { topic } = req.body;
+      const { topic, tags = [], details = "" } = req.body;
 
       if (!topic) {
         return res.status(400).json({ message: "Topic is required" });
@@ -19,7 +19,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const openai = new OpenAI({ apiKey });
 
-      const prompt = `Generate a short English paragraph (3-5 sentences) about "${topic}" suitable for pronunciation practice. 
+      let customContext = "";
+      if (tags.length > 0) {
+        customContext += `\nFocus areas: ${tags.join(", ")}.`;
+      }
+      if (details.trim()) {
+        customContext += `\nAdditional context: ${details.trim()}`;
+      }
+
+      const prompt = `Generate a short English paragraph (3-5 sentences) about "${topic}" suitable for pronunciation practice.${customContext}
       
 After the paragraph, provide a JSON array of 15-20 key vocabulary words from the paragraph with their IPA phonetic transcriptions.
 
