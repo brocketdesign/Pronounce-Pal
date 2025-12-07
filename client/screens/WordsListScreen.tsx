@@ -191,7 +191,7 @@ export default function WordsListScreen() {
     }
   };
 
-  const words = currentLesson?.words || [];
+  const words = currentLesson?.sections.flatMap(s => s.words) || [];
 
   const filteredWords = useMemo(() => {
     if (!searchQuery.trim()) {

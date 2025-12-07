@@ -5,11 +5,15 @@ export interface WordPhonetic {
   phonetic: string;
 }
 
+export interface ParagraphSection {
+  paragraph: string;
+  words: WordPhonetic[];
+}
+
 export interface Lesson {
   topic: string;
   icon: string;
-  paragraph: string;
-  words: WordPhonetic[];
+  sections: ParagraphSection[];
   createdAt: Date;
 }
 
@@ -30,12 +34,15 @@ interface LessonStore {
   apiKey: string;
   selectedVoice: VoiceOption;
   isLoading: boolean;
+  isExtending: boolean;
   error: string | null;
   setCurrentLesson: (lesson: Lesson | null) => void;
+  addSection: (section: ParagraphSection) => void;
   addRecentTopic: (topic: string) => void;
   setApiKey: (key: string) => void;
   setSelectedVoice: (voice: VoiceOption) => void;
   setIsLoading: (loading: boolean) => void;
+  setIsExtending: (extending: boolean) => void;
   setError: (error: string | null) => void;
   clearLesson: () => void;
 }
@@ -46,6 +53,7 @@ let globalState: {
   apiKey: string;
   selectedVoice: VoiceOption;
   isLoading: boolean;
+  isExtending: boolean;
   error: string | null;
 } = {
   currentLesson: null,
@@ -53,6 +61,7 @@ let globalState: {
   apiKey: "",
   selectedVoice: "alloy",
   isLoading: false,
+  isExtending: false,
   error: null,
 };
 
@@ -102,8 +111,36 @@ export function useLessonStore(): LessonStore {
     notifyListeners();
   }, []);
 
+  const setIsExtending = useCallback((extending: boolean) => {
+    globalState = { ...globalState, isExtending: extending };
+    notifyListeners();
+  }, []);
+
   const setError = useCallback((error: string | null) => {
     globalState = { ...globalState, error: error };
+    notifyListeners();
+  }, []);
+
+  const addSection = useCallback((section: ParagraphSection) => {
+    console.log("addSection called with section:", section?.paragraph?.substring(0, 50));
+    console.log("Current lesson exists:", !!globalState.currentLesson);
+    console.log("Current sections count:", globalState.currentLesson?.sections?.length);
+    
+    if (!globalState.currentLesson) {
+      console.log("No current lesson - returning early");
+      return;
+    }
+    
+    globalState = {
+      ...globalState,
+      currentLesson: {
+        ...globalState.currentLesson,
+        sections: [...globalState.currentLesson.sections, section],
+      },
+    };
+    
+    console.log("Updated sections count:", globalState.currentLesson?.sections?.length);
+    console.log("Notifying listeners...");
     notifyListeners();
   }, []);
 
@@ -118,12 +155,15 @@ export function useLessonStore(): LessonStore {
     apiKey: globalState.apiKey,
     selectedVoice: globalState.selectedVoice,
     isLoading: globalState.isLoading,
+    isExtending: globalState.isExtending,
     error: globalState.error,
     setCurrentLesson,
+    addSection,
     addRecentTopic,
     setApiKey,
     setSelectedVoice,
     setIsLoading,
+    setIsExtending,
     setError,
     clearLesson,
   };

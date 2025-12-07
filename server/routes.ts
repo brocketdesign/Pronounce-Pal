@@ -106,6 +106,107 @@ Make sure to include common and challenging words for pronunciation. The phoneti
     }
   });
 
+  app.post("/api/extend-lesson", async (req, res) => {
+    try {
+      const { topic, existingParagraphs = [] } = req.body;
+
+      if (!topic) {
+        return res.status(400).json({ message: "Topic is required" });
+      }
+
+      const apiKey = process.env.OPENAI_API_KEY;
+
+      if (!apiKey) {
+        return res.status(400).json({ message: "OpenAI API key is not configured" });
+      }
+
+      const openai = new OpenAI({ apiKey });
+
+      const previousContent = existingParagraphs.length > 0 
+        ? `\n\nPrevious paragraphs for context:\n${existingParagraphs.join('\n\n')}`
+        : '';
+
+      const prompt = `Generate a NEW short English paragraph (3-5 sentences) about "${topic}" suitable for pronunciation practice. This paragraph should continue the topic with fresh content and different vocabulary.${previousContent}
+      
+IMPORTANT: Do NOT repeat any content from the previous paragraphs. Introduce new ideas, examples, or aspects of the topic.
+
+After the paragraph, provide a JSON array of 15-20 key vocabulary words from the NEW paragraph with their IPA phonetic transcriptions.
+
+Format your response EXACTLY like this:
+PARAGRAPH:
+[Your new paragraph here]
+
+WORDS:
+[{"word": "example", "phonetic": "/ɪɡˈzæmpəl/"}, ...]
+
+Make sure to include common and challenging words for pronunciation. The phonetic transcriptions should use the International Phonetic Alphabet (IPA).`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an English pronunciation tutor. Generate educational content with accurate IPA phonetic transcriptions. When asked to extend content, always provide fresh, new material that doesn't repeat previous content.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        max_tokens: 1000,
+        temperature: 0.7,
+      });
+
+      const responseText = completion.choices[0]?.message?.content || "";
+
+      const paragraphMatch = responseText.match(
+        /PARAGRAPH:\s*([\s\S]*?)\s*WORDS:/
+      );
+      const wordsMatch = responseText.match(/WORDS:\s*(\[[\s\S]*\])/);
+
+      if (!paragraphMatch || !wordsMatch) {
+        return res.status(500).json({
+          message: "Failed to parse AI response. Please try again.",
+        });
+      }
+
+      const paragraph = paragraphMatch[1].trim();
+      let words: { word: string; phonetic: string }[] = [];
+
+      try {
+        words = JSON.parse(wordsMatch[1]);
+      } catch {
+        return res.status(500).json({
+          message: "Failed to parse vocabulary data. Please try again.",
+        });
+      }
+
+      res.json({
+        paragraph,
+        words,
+      });
+    } catch (error: any) {
+      console.error("Lesson extension error:", error);
+
+      if (error?.status === 401) {
+        return res.status(401).json({
+          message: "Invalid API key. Please check your OpenAI API key.",
+        });
+      }
+
+      if (error?.status === 429) {
+        return res.status(429).json({
+          message: "Rate limit exceeded. Please try again later.",
+        });
+      }
+
+      res.status(500).json({
+        message: error?.message || "Failed to extend lesson",
+      });
+    }
+  });
+
   app.post("/api/text-to-speech", async (req, res) => {
     try {
       const { text, voice = "alloy" } = req.body;

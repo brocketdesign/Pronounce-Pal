@@ -66,8 +66,12 @@ export default function GenerateLessonScreen() {
       const lesson: Lesson = {
         topic,
         icon,
-        paragraph: data.paragraph,
-        words: data.words,
+        sections: [
+          {
+            paragraph: data.paragraph,
+            words: data.words,
+          },
+        ],
         createdAt: new Date(),
       };
 

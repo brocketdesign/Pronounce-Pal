@@ -21,10 +21,10 @@ import * as FileSystem from "expo-file-system";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing, BorderRadius, Fonts, Typography } from "@/constants/theme";
+import { Spacing, BorderRadius, Fonts } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { useLessonStore, WordPhonetic, VoiceOption } from "@/stores/lessonStore";
-import { getApiUrl } from "@/lib/query-client";
+import { useLessonStore, WordPhonetic, ParagraphSection } from "@/stores/lessonStore";
+import { getApiUrl, apiRequest } from "@/lib/query-client";
 
 if (
   Platform.OS === "android" &&
@@ -108,12 +108,136 @@ function TappableWord({
   );
 }
 
+interface ParagraphDisplayProps {
+  section: ParagraphSection;
+  sectionIndex: number;
+  showAllPhonetics: boolean;
+  activeWords: Set<string>;
+  toggleWord: (key: string) => void;
+  selectedVoice: string;
+  playingWord: string | null;
+  onPlayWordAudio: (word: string) => void;
+}
+
+function ParagraphDisplay({
+  section,
+  sectionIndex,
+  showAllPhonetics,
+  activeWords,
+  toggleWord,
+  selectedVoice,
+  playingWord,
+  onPlayWordAudio,
+}: ParagraphDisplayProps) {
+  const { theme } = useTheme();
+  const words = section.paragraph.split(" ");
+  const wordPhoneticMap = new Map(
+    section.words.map((w) => [w.word.toLowerCase(), w.phonetic])
+  );
+
+  return (
+    <View style={styles.sectionContainer}>
+      <View style={styles.sectionHeader}>
+        <View style={[styles.sectionBadge, { backgroundColor: theme.primary }]}>
+          <ThemedText type="small" style={{ color: "#FFFFFF", fontWeight: "600" }}>
+            {sectionIndex + 1}
+          </ThemedText>
+        </View>
+        <ThemedText type="body" style={{ color: theme.textSecondary }}>
+          Paragraph {sectionIndex + 1}
+        </ThemedText>
+      </View>
+      
+      <View style={styles.paragraph}>
+        {words.map((word, index) => {
+          const cleanWord = word
+            .replace(/[.,!?;:'"()]/g, "")
+            .toLowerCase();
+          const phonetic = wordPhoneticMap.get(cleanWord) || "";
+          const hasPhonetic = phonetic.length > 0;
+          const wordKey = `${sectionIndex}-${word}-${index}`;
+          return (
+            <TappableWord
+              key={wordKey}
+              word={word}
+              phonetic={phonetic}
+              hasPhonetic={hasPhonetic}
+              isActive={activeWords.has(wordKey)}
+              showAllPhonetics={showAllPhonetics}
+              onPress={() => toggleWord(wordKey)}
+            />
+          );
+        })}
+      </View>
+
+      <View style={styles.vocabularySection}>
+        <View style={styles.vocabularyHeader}>
+          <ThemedText type="h4">Vocabulary</ThemedText>
+          <View style={[styles.badge, { backgroundColor: theme.primary }]}>
+            <ThemedText type="small" style={{ color: "#FFFFFF" }}>
+              {section.words.length}
+            </ThemedText>
+          </View>
+        </View>
+        <ThemedText
+          type="small"
+          style={[styles.chipInstruction, { color: theme.textSecondary }]}
+        >
+          Tap a word to hear pronunciation
+        </ThemedText>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsContainer}
+        >
+          {section.words.slice(0, 10).map((wordItem, index) => {
+            const isWordPlaying = playingWord === wordItem.word;
+            return (
+              <Pressable
+                key={`${sectionIndex}-chip-${index}`}
+                onPress={() => onPlayWordAudio(wordItem.word)}
+                disabled={playingWord !== null}
+                style={[
+                  styles.chip, 
+                  { 
+                    borderColor: isWordPlaying ? theme.primary : theme.border,
+                    backgroundColor: isWordPlaying ? `${theme.primary}15` : 'transparent',
+                  }
+                ]}
+              >
+                <View style={styles.chipContent}>
+                  <View style={styles.chipTextContainer}>
+                    <ThemedText type="body" style={{ fontWeight: "600" }}>
+                      {wordItem.word}
+                    </ThemedText>
+                    <ThemedText
+                      type="small"
+                      style={{ color: theme.phonetic, fontFamily: Fonts?.mono }}
+                    >
+                      {wordItem.phonetic}
+                    </ThemedText>
+                  </View>
+                  {isWordPlaying ? (
+                    <ActivityIndicator size="small" color={theme.primary} style={styles.chipIcon} />
+                  ) : (
+                    <Feather name="volume-2" size={14} color={theme.textSecondary} style={styles.chipIcon} />
+                  )}
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
 export default function LearnScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp>();
-  const { currentLesson, selectedVoice } = useLessonStore();
+  const { currentLesson, selectedVoice, isExtending, addSection, setIsExtending, setError } = useLessonStore();
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
   const [showAllPhonetics, setShowAllPhonetics] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -126,6 +250,7 @@ export default function LearnScreen() {
   const wordWebAudioRef = useRef<HTMLAudioElement | null>(null);
   const [wordAudioUri, setWordAudioUri] = useState<string | null>(null);
   const [shouldPlayWord, setShouldPlayWord] = useState(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
 
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
   const wordPlayer = useAudioPlayer(wordAudioUri ? { uri: wordAudioUri } : null);
@@ -180,13 +305,13 @@ export default function LearnScreen() {
     };
   }, []);
 
-  const toggleWord = useCallback((word: string) => {
+  const toggleWord = useCallback((wordKey: string) => {
     setActiveWords((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(word)) {
-        newSet.delete(word);
+      if (newSet.has(wordKey)) {
+        newSet.delete(wordKey);
       } else {
-        newSet.add(word);
+        newSet.add(wordKey);
       }
       return newSet;
     });
@@ -205,7 +330,7 @@ export default function LearnScreen() {
   };
 
   const handlePlayAudio = async () => {
-    if (!currentLesson) return;
+    if (!currentLesson || currentLesson.sections.length === 0) return;
     
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -213,6 +338,8 @@ export default function LearnScreen() {
 
     setIsLoadingAudio(true);
     setAudioError(null);
+
+    const allParagraphs = currentLesson.sections.map(s => s.paragraph).join(" ");
 
     try {
       const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
@@ -223,7 +350,7 @@ export default function LearnScreen() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ text: currentLesson.paragraph, voice: selectedVoice }),
+          body: JSON.stringify({ text: allParagraphs, voice: selectedVoice }),
         });
 
         if (!response.ok) {
@@ -260,7 +387,7 @@ export default function LearnScreen() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ text: currentLesson.paragraph, voice: selectedVoice }),
+          body: JSON.stringify({ text: allParagraphs, voice: selectedVoice }),
         });
 
         if (!response.ok) {
@@ -384,6 +511,52 @@ export default function LearnScreen() {
     }
   };
 
+  const handleExtendLesson = async () => {
+    if (!currentLesson || isExtending) return;
+    
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+
+    setIsExtending(true);
+    setExtendError(null);
+
+    try {
+      const existingParagraphs = currentLesson.sections.map(s => s.paragraph);
+      
+      const response = await apiRequest("POST", "/api/extend-lesson", {
+        topic: currentLesson.topic,
+        existingParagraphs,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to extend lesson");
+      }
+
+      console.log("Extend lesson response:", data);
+      console.log("Adding section with paragraph:", data.paragraph?.substring(0, 50));
+      console.log("Words count:", data.words?.length);
+
+      if (data.paragraph && data.words) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        addSection({
+          paragraph: data.paragraph,
+          words: data.words,
+        });
+        console.log("Section added successfully");
+      } else {
+        throw new Error("Invalid response data - missing paragraph or words");
+      }
+    } catch (err: any) {
+      console.error("Extend lesson error:", err);
+      setExtendError(err.message || "Failed to extend lesson");
+    } finally {
+      setIsExtending(false);
+    }
+  };
+
   if (!currentLesson) {
     return (
       <ThemedView style={styles.container}>
@@ -419,10 +592,7 @@ export default function LearnScreen() {
     );
   }
 
-  const words = currentLesson.paragraph.split(" ");
-  const wordPhoneticMap = new Map(
-    currentLesson.words.map((w) => [w.word.toLowerCase(), w.phonetic])
-  );
+  const totalWords = currentLesson.sections.reduce((sum, s) => sum + s.words.length, 0);
 
   return (
     <ThemedView style={styles.container}>
@@ -460,7 +630,7 @@ export default function LearnScreen() {
           >
             <Feather name="list" size={18} color={theme.primary} />
             <ThemedText type="small" style={{ color: theme.primary }}>
-              {currentLesson.words.length} words
+              {totalWords} words
             </ThemedText>
           </Pressable>
         </View>
@@ -536,93 +706,60 @@ export default function LearnScreen() {
           </View>
         ) : null}
 
-        <View style={styles.paragraphContainer}>
-          <ThemedText
-            type="small"
-            style={[styles.instruction, { color: theme.textSecondary }]}
-          >
-            Tap bold words to see pronunciation
-          </ThemedText>
-          <View style={styles.paragraph}>
-            {words.map((word, index) => {
-              const cleanWord = word
-                .replace(/[.,!?;:'"()]/g, "")
-                .toLowerCase();
-              const phonetic = wordPhoneticMap.get(cleanWord) || "";
-              const hasPhonetic = phonetic.length > 0;
-              return (
-                <TappableWord
-                  key={`${word}-${index}`}
-                  word={word}
-                  phonetic={phonetic}
-                  hasPhonetic={hasPhonetic}
-                  isActive={activeWords.has(`${word}-${index}`)}
-                  showAllPhonetics={showAllPhonetics}
-                  onPress={() => toggleWord(`${word}-${index}`)}
-                />
-              );
-            })}
-          </View>
-        </View>
+        <ThemedText
+          type="small"
+          style={[styles.instruction, { color: theme.textSecondary }]}
+        >
+          Tap bold words to see pronunciation
+        </ThemedText>
 
-        <View style={styles.vocabularySection}>
-          <View style={styles.vocabularyHeader}>
-            <ThemedText type="h4">Key Vocabulary</ThemedText>
-            <View style={[styles.badge, { backgroundColor: theme.primary }]}>
-              <ThemedText type="small" style={{ color: "#FFFFFF" }}>
-                {currentLesson.words.length}
-              </ThemedText>
-            </View>
+        {currentLesson.sections.map((section, index) => (
+          <ParagraphDisplay
+            key={`section-${index}`}
+            section={section}
+            sectionIndex={index}
+            showAllPhonetics={showAllPhonetics}
+            activeWords={activeWords}
+            toggleWord={toggleWord}
+            selectedVoice={selectedVoice}
+            playingWord={playingWord}
+            onPlayWordAudio={handlePlayWordAudio}
+          />
+        ))}
+
+        {extendError ? (
+          <View style={[styles.errorBanner, { backgroundColor: `${theme.error}15`, marginTop: Spacing.lg }]}>
+            <Feather name="alert-circle" size={14} color={theme.error} />
+            <ThemedText type="small" style={{ color: theme.error, flex: 1 }}>
+              {extendError}
+            </ThemedText>
           </View>
+        ) : null}
+
+        <Pressable
+          onPress={handleExtendLesson}
+          disabled={isExtending}
+          style={[
+            styles.extendButton,
+            {
+              backgroundColor: theme.backgroundSecondary,
+              borderColor: theme.border,
+              opacity: isExtending ? 0.7 : 1,
+            },
+          ]}
+        >
+          {isExtending ? (
+            <ActivityIndicator size="small" color={theme.primary} />
+          ) : (
+            <Feather name="plus-circle" size={20} color={theme.primary} />
+          )}
           <ThemedText
-            type="small"
-            style={[styles.chipInstruction, { color: theme.textSecondary }]}
+            type="body"
+            style={{ color: theme.primary, fontWeight: "600" }}
           >
-            Tap a word to hear its pronunciation
+            {isExtending ? "Generating..." : "Extend Lesson"}
           </ThemedText>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipsContainer}
-          >
-            {currentLesson.words.slice(0, 10).map((wordItem, index) => {
-              const isWordPlaying = playingWord === wordItem.word;
-              return (
-                <Pressable
-                  key={index}
-                  onPress={() => handlePlayWordAudio(wordItem.word)}
-                  disabled={playingWord !== null}
-                  style={[
-                    styles.chip, 
-                    { 
-                      borderColor: isWordPlaying ? theme.primary : theme.border,
-                      backgroundColor: isWordPlaying ? `${theme.primary}15` : 'transparent',
-                    }
-                  ]}
-                >
-                  <View style={styles.chipContent}>
-                    <View style={styles.chipTextContainer}>
-                      <ThemedText type="body" style={{ fontWeight: "600" }}>
-                        {wordItem.word}
-                      </ThemedText>
-                      <ThemedText
-                        type="small"
-                        style={{ color: theme.phonetic, fontFamily: Fonts?.mono }}
-                      >
-                        {wordItem.phonetic}
-                      </ThemedText>
-                    </View>
-                    {isWordPlaying ? (
-                      <ActivityIndicator size="small" color={theme.primary} style={styles.chipIcon} />
-                    ) : (
-                      <Feather name="volume-2" size={14} color={theme.textSecondary} style={styles.chipIcon} />
-                    )}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
+        </Pressable>
       </ScrollView>
     </ThemedView>
   );
@@ -687,7 +824,7 @@ const styles = StyleSheet.create({
   },
   controlsRow: {
     flexDirection: "row",
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
     gap: Spacing.sm,
     flexWrap: "wrap",
   },
@@ -716,71 +853,98 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
     gap: Spacing.sm,
   },
-  paragraphContainer: {
+  instruction: {
+    marginBottom: Spacing.lg,
+  },
+  sectionContainer: {
     marginBottom: Spacing["2xl"],
   },
-  instruction: {
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
     marginBottom: Spacing.md,
+  },
+  sectionBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   paragraph: {
     flexDirection: "row",
     flexWrap: "wrap",
-    alignItems: "flex-start",
+    marginBottom: Spacing.xl,
   },
   wordContainer: {
     flexDirection: "row",
-    alignItems: "flex-start",
   },
   wordWrapper: {
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: Spacing.xs,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
     borderRadius: BorderRadius.xs,
   },
   wordText: {
-    ...Typography.paragraph,
+    fontSize: 18,
+    lineHeight: 32,
   },
   wordTextBold: {
-    fontWeight: "700",
+    fontWeight: "600",
   },
   phoneticText: {
-    ...Typography.phonetic,
-    marginTop: 2,
+    fontSize: 12,
+    marginTop: -2,
+    textAlign: "center",
   },
   vocabularySection: {
-    marginBottom: Spacing["2xl"],
+    marginTop: Spacing.sm,
   },
   vocabularyHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.xs,
   },
   badge: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.full,
   },
+  chipInstruction: {
+    marginBottom: Spacing.md,
+  },
   chipsContainer: {
+    paddingRight: Spacing.xl,
     gap: Spacing.sm,
   },
   chip: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.sm,
     borderWidth: 1,
-  },
-  chipInstruction: {
-    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
   },
   chipContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   chipTextContainer: {
     alignItems: "center",
   },
   chipIcon: {
     marginLeft: Spacing.xs,
+  },
+  extendButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    gap: Spacing.md,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.xl,
   },
 });
