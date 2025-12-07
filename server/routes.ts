@@ -5,14 +5,16 @@ import OpenAI from "openai";
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/generate-lesson", async (req, res) => {
     try {
-      const { topic, apiKey } = req.body;
+      const { topic } = req.body;
 
       if (!topic) {
         return res.status(400).json({ message: "Topic is required" });
       }
 
+      const apiKey = process.env.OPENAI_API_KEY;
+
       if (!apiKey) {
-        return res.status(400).json({ message: "API key is required" });
+        return res.status(400).json({ message: "OpenAI API key is not configured" });
       }
 
       const openai = new OpenAI({ apiKey });

@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, ActivityIndicator, Pressable } from "react-native";
+import { View, StyleSheet, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import {
+  useNavigation,
+  useRoute,
+  RouteProp,
+  CommonActions,
+} from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 
@@ -10,10 +15,10 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing, BorderRadius } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useLessonStore, Lesson } from "@/stores/lessonStore";
-import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { apiRequest } from "@/lib/query-client";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, "GenerateLesson">;
@@ -27,32 +32,20 @@ export default function GenerateLessonScreen() {
   const { topic, icon } = route.params;
 
   const {
-    apiKey,
     setCurrentLesson,
     addRecentTopic,
-    isLoading,
     setIsLoading,
     error,
     setError,
   } = useLessonStore();
 
-  const [status, setStatus] = useState<"loading" | "error" | "no-key">("loading");
+  const [status, setStatus] = useState<"loading" | "error">("loading");
 
   useEffect(() => {
-    if (!apiKey) {
-      setStatus("no-key");
-      return;
-    }
-
     generateLesson();
   }, []);
 
   const generateLesson = async () => {
-    if (!apiKey) {
-      setStatus("no-key");
-      return;
-    }
-
     setStatus("loading");
     setIsLoading(true);
     setError(null);
@@ -60,7 +53,6 @@ export default function GenerateLessonScreen() {
     try {
       const response = await apiRequest("POST", "/api/generate-lesson", {
         topic,
-        apiKey,
       });
 
       const data = await response.json();
@@ -81,10 +73,20 @@ export default function GenerateLessonScreen() {
       addRecentTopic(topic);
       setIsLoading(false);
 
-      navigation.goBack();
-      setTimeout(() => {
-        navigation.navigate("Main");
-      }, 100);
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [
+            {
+              name: "Main",
+              state: {
+                routes: [{ name: "LearnTab" }],
+                index: 1,
+              },
+            },
+          ],
+        })
+      );
     } catch (err: any) {
       setStatus("error");
       setError(err.message || "Failed to generate lesson");
@@ -92,12 +94,12 @@ export default function GenerateLessonScreen() {
     }
   };
 
-  const handleGoToSettings = () => {
-    navigation.goBack();
-  };
-
   const handleRetry = () => {
     generateLesson();
+  };
+
+  const handleGoBack = () => {
+    navigation.goBack();
   };
 
   return (
@@ -133,31 +135,6 @@ export default function GenerateLessonScreen() {
           </View>
         ) : null}
 
-        {status === "no-key" ? (
-          <View style={styles.centerContent}>
-            <View
-              style={[
-                styles.errorIcon,
-                { backgroundColor: `${theme.error}15` },
-              ]}
-            >
-              <Feather name="key" size={48} color={theme.error} />
-            </View>
-            <ThemedText type="h3" style={styles.title}>
-              API Key Required
-            </ThemedText>
-            <ThemedText
-              type="body"
-              style={[styles.subtitle, { color: theme.textSecondary }]}
-            >
-              Please add your OpenAI API key in Settings to generate lessons.
-            </ThemedText>
-            <Button onPress={handleGoToSettings} style={styles.button}>
-              Go to Settings
-            </Button>
-          </View>
-        ) : null}
-
         {status === "error" ? (
           <View style={styles.centerContent}>
             <View
@@ -177,9 +154,14 @@ export default function GenerateLessonScreen() {
             >
               {error || "Something went wrong. Please try again."}
             </ThemedText>
-            <Button onPress={handleRetry} style={styles.button}>
-              Try Again
-            </Button>
+            <View style={styles.buttonRow}>
+              <Button onPress={handleRetry} style={styles.button}>
+                Try Again
+              </Button>
+              <Button onPress={handleGoBack} style={styles.secondaryButton}>
+                Go Back
+              </Button>
+            </View>
           </View>
         ) : null}
       </View>
@@ -225,7 +207,16 @@ const styles = StyleSheet.create({
     marginBottom: Spacing["2xl"],
     paddingHorizontal: Spacing.xl,
   },
+  buttonRow: {
+    gap: Spacing.md,
+    width: "100%",
+    alignItems: "center",
+  },
   button: {
     minWidth: 200,
+  },
+  secondaryButton: {
+    minWidth: 200,
+    backgroundColor: "transparent",
   },
 });

@@ -34,14 +34,24 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 interface TappableWordProps {
   word: string;
   phonetic: string;
+  hasPhonetic: boolean;
   isActive: boolean;
+  showAllPhonetics: boolean;
   onPress: () => void;
 }
 
-function TappableWord({ word, phonetic, isActive, onPress }: TappableWordProps) {
+function TappableWord({
+  word,
+  phonetic,
+  hasPhonetic,
+  isActive,
+  showAllPhonetics,
+  onPress,
+}: TappableWordProps) {
   const { theme } = useTheme();
 
   const handlePress = () => {
+    if (!hasPhonetic) return;
     if (Platform.OS !== "web") {
       Haptics.selectionAsync();
     }
@@ -51,26 +61,35 @@ function TappableWord({ word, phonetic, isActive, onPress }: TappableWordProps) 
 
   const cleanWord = word.replace(/[.,!?;:'"()]/g, "");
   const punctuation = word.replace(cleanWord, "");
+  const shouldShowPhonetic = hasPhonetic && (isActive || showAllPhonetics);
 
   return (
-    <Pressable onPress={handlePress} style={styles.wordContainer}>
+    <Pressable
+      onPress={handlePress}
+      style={styles.wordContainer}
+      disabled={!hasPhonetic}
+    >
       <View
         style={[
           styles.wordWrapper,
-          isActive && { backgroundColor: theme.highlight },
+          shouldShowPhonetic && { backgroundColor: theme.highlight },
         ]}
       >
         <ThemedText
           style={[
             styles.wordText,
-            { borderBottomColor: `${theme.primary}33` },
+            hasPhonetic && styles.wordTextBold,
+            hasPhonetic && { color: theme.primary },
           ]}
         >
           {cleanWord}
         </ThemedText>
-        {isActive ? (
+        {shouldShowPhonetic ? (
           <ThemedText
-            style={[styles.phoneticText, { color: theme.phonetic, fontFamily: Fonts?.mono }]}
+            style={[
+              styles.phoneticText,
+              { color: theme.phonetic, fontFamily: Fonts?.mono },
+            ]}
           >
             {phonetic}
           </ThemedText>
@@ -92,6 +111,7 @@ export default function LearnScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { currentLesson } = useLessonStore();
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
+  const [showAllPhonetics, setShowAllPhonetics] = useState(false);
 
   const toggleWord = useCallback((word: string) => {
     setActiveWords((prev) => {
@@ -104,6 +124,14 @@ export default function LearnScreen() {
       return newSet;
     });
   }, []);
+
+  const toggleShowAllPhonetics = () => {
+    if (Platform.OS !== "web") {
+      Haptics.selectionAsync();
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowAllPhonetics((prev) => !prev);
+  };
 
   const handleShowWordsList = () => {
     navigation.navigate("WordsList");
@@ -122,7 +150,10 @@ export default function LearnScreen() {
           ]}
         >
           <View
-            style={[styles.emptyIcon, { backgroundColor: theme.backgroundSecondary }]}
+            style={[
+              styles.emptyIcon,
+              { backgroundColor: theme.backgroundSecondary },
+            ]}
           >
             <Feather name="book-open" size={48} color={theme.textSecondary} />
           </View>
@@ -133,7 +164,8 @@ export default function LearnScreen() {
             type="body"
             style={[styles.emptyText, { color: theme.textSecondary }]}
           >
-            Select a topic from the Home tab to generate your first pronunciation lesson.
+            Select a topic from the Home tab to generate your first
+            pronunciation lesson.
           </ThemedText>
         </View>
       </ThemedView>
@@ -161,7 +193,9 @@ export default function LearnScreen() {
       >
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <View style={[styles.topicIcon, { backgroundColor: theme.highlight }]}>
+            <View
+              style={[styles.topicIcon, { backgroundColor: theme.highlight }]}
+            >
               <Feather
                 name={currentLesson.icon as any}
                 size={20}
@@ -172,11 +206,43 @@ export default function LearnScreen() {
           </View>
           <Pressable
             onPress={handleShowWordsList}
-            style={[styles.wordsListButton, { backgroundColor: theme.highlight }]}
+            style={[
+              styles.wordsListButton,
+              { backgroundColor: theme.highlight },
+            ]}
           >
             <Feather name="list" size={18} color={theme.primary} />
             <ThemedText type="small" style={{ color: theme.primary }}>
               {currentLesson.words.length} words
+            </ThemedText>
+          </Pressable>
+        </View>
+
+        <View style={styles.controlsRow}>
+          <Pressable
+            onPress={toggleShowAllPhonetics}
+            style={[
+              styles.toggleButton,
+              {
+                backgroundColor: showAllPhonetics
+                  ? theme.primary
+                  : theme.backgroundSecondary,
+              },
+            ]}
+          >
+            <Feather
+              name={showAllPhonetics ? "eye" : "eye-off"}
+              size={16}
+              color={showAllPhonetics ? "#FFFFFF" : theme.textSecondary}
+            />
+            <ThemedText
+              type="small"
+              style={{
+                color: showAllPhonetics ? "#FFFFFF" : theme.textSecondary,
+                fontWeight: "500",
+              }}
+            >
+              {showAllPhonetics ? "Hide Phonetics" : "Show Phonetics"}
             </ThemedText>
           </Pressable>
         </View>
@@ -186,18 +252,23 @@ export default function LearnScreen() {
             type="small"
             style={[styles.instruction, { color: theme.textSecondary }]}
           >
-            Tap any word to see its pronunciation
+            Tap bold words to see pronunciation
           </ThemedText>
           <View style={styles.paragraph}>
             {words.map((word, index) => {
-              const cleanWord = word.replace(/[.,!?;:'"()]/g, "").toLowerCase();
+              const cleanWord = word
+                .replace(/[.,!?;:'"()]/g, "")
+                .toLowerCase();
               const phonetic = wordPhoneticMap.get(cleanWord) || "";
+              const hasPhonetic = phonetic.length > 0;
               return (
                 <TappableWord
                   key={`${word}-${index}`}
                   word={word}
                   phonetic={phonetic}
+                  hasPhonetic={hasPhonetic}
                   isActive={activeWords.has(`${word}-${index}`)}
+                  showAllPhonetics={showAllPhonetics}
                   onPress={() => toggleWord(`${word}-${index}`)}
                 />
               );
@@ -229,7 +300,7 @@ export default function LearnScreen() {
                 }}
                 style={[styles.chip, { borderColor: theme.border }]}
               >
-                <ThemedText type="body" style={{ fontWeight: "500" }}>
+                <ThemedText type="body" style={{ fontWeight: "600" }}>
                   {wordItem.word}
                 </ThemedText>
                 <ThemedText
@@ -282,7 +353,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Spacing["2xl"],
+    marginBottom: Spacing.lg,
   },
   headerTop: {
     flexDirection: "row",
@@ -303,6 +374,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
     gap: Spacing.xs,
+  },
+  controlsRow: {
+    flexDirection: "row",
+    marginBottom: Spacing.xl,
+  },
+  toggleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.sm,
   },
   paragraphContainer: {
     marginBottom: Spacing["2xl"],
@@ -326,6 +409,9 @@ const styles = StyleSheet.create({
   },
   wordText: {
     ...Typography.paragraph,
+  },
+  wordTextBold: {
+    fontWeight: "700",
   },
   phoneticText: {
     ...Typography.phonetic,
