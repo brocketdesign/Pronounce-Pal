@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 export interface WordPhonetic {
   word: string;
@@ -65,16 +65,13 @@ function notifyListeners() {
 export function useLessonStore(): LessonStore {
   const [, forceUpdate] = useState({});
 
-  const subscribe = useCallback(() => {
+  useEffect(() => {
     const listener = () => forceUpdate({});
     listeners.add(listener);
-    return () => listeners.delete(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   }, []);
-
-  useMemo(() => {
-    const unsubscribe = subscribe();
-    return unsubscribe;
-  }, [subscribe]);
 
   const setCurrentLesson = useCallback((lesson: Lesson | null) => {
     globalState = { ...globalState, currentLesson: lesson };
