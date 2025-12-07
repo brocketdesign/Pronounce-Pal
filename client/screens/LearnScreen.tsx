@@ -576,6 +576,11 @@ export default function LearnScreen() {
     }
   };
 
+  React.useEffect(() => {
+    // keep local extend state in sync if store selection changes externally
+    setIsExtendingLocal(isExtending);
+  }, [isExtending]);
+
   if (!currentLesson) {
     return (
       <ThemedView style={styles.container}>
@@ -747,7 +752,7 @@ export default function LearnScreen() {
           />
         ))}
 
-        {isExtending && (
+        {isExtendingLocal && (
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
               <ActivityIndicator size="small" color={theme.primary} />
@@ -783,22 +788,22 @@ export default function LearnScreen() {
 
         <Pressable
           onPress={handleExtendLesson}
-          disabled={isExtending}
+          disabled={isExtendingLocal}
           hitSlop={Platform.OS === "web" ? 12 : 8}
           style={({ pressed }) => [
             styles.extendButton,
             {
-              backgroundColor: isExtending 
+              backgroundColor: isExtendingLocal 
                 ? theme.primary 
                 : pressed 
                   ? theme.highlight 
                   : theme.backgroundSecondary,
-              borderColor: isExtending ? theme.primary : theme.border,
-              transform: [{ scale: pressed && !isExtending ? 0.98 : 1 }],
+              borderColor: isExtendingLocal ? theme.primary : theme.border,
+              transform: [{ scale: pressed && !isExtendingLocal ? 0.98 : 1 }],
             },
           ]}
         >
-          {isExtending ? (
+          {isExtendingLocal ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Feather name="plus-circle" size={20} color={theme.primary} />
@@ -806,11 +811,11 @@ export default function LearnScreen() {
           <ThemedText
             type="body"
             style={{ 
-              color: isExtending ? "#FFFFFF" : theme.primary, 
+              color: isExtendingLocal ? "#FFFFFF" : theme.primary, 
               fontWeight: "600" 
             }}
           >
-            {isExtending ? "Generating new paragraph..." : "Extend Lesson"}
+            {isExtendingLocal ? "Generating new paragraph..." : "Extend Lesson"}
           </ThemedText>
         </Pressable>
       </ScrollView>
