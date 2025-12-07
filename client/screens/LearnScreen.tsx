@@ -23,7 +23,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Fonts, Typography } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { useLessonStore, WordPhonetic } from "@/stores/lessonStore";
+import { useLessonStore, WordPhonetic, VoiceOption } from "@/stores/lessonStore";
 import { getApiUrl } from "@/lib/query-client";
 
 if (
@@ -113,7 +113,7 @@ export default function LearnScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp>();
-  const { currentLesson } = useLessonStore();
+  const { currentLesson, selectedVoice } = useLessonStore();
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
   const [showAllPhonetics, setShowAllPhonetics] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -122,8 +122,13 @@ export default function LearnScreen() {
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [shouldPlay, setShouldPlay] = useState(false);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingWord, setPlayingWord] = useState<string | null>(null);
+  const wordWebAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [wordAudioUri, setWordAudioUri] = useState<string | null>(null);
+  const [shouldPlayWord, setShouldPlayWord] = useState(false);
 
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
+  const wordPlayer = useAudioPlayer(wordAudioUri ? { uri: wordAudioUri } : null);
 
   useEffect(() => {
     if (shouldPlay && audioUri && player && Platform.OS !== "web") {
@@ -143,6 +148,37 @@ export default function LearnScreen() {
       return () => clearInterval(interval);
     }
   }, [player, isPlaying, isLoadingAudio]);
+
+  useEffect(() => {
+    if (shouldPlayWord && wordAudioUri && wordPlayer && Platform.OS !== "web") {
+      wordPlayer.play();
+      setShouldPlayWord(false);
+    }
+  }, [wordAudioUri, shouldPlayWord, wordPlayer]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" && wordPlayer && playingWord) {
+      const checkStatus = () => {
+        if (wordPlayer.playing === false && wordAudioUri) {
+          setPlayingWord(null);
+        }
+      };
+      const interval = setInterval(checkStatus, 200);
+      return () => clearInterval(interval);
+    }
+  }, [wordPlayer, playingWord, wordAudioUri]);
+
+  useEffect(() => {
+    return () => {
+      if (wordWebAudioRef.current) {
+        wordWebAudioRef.current.pause();
+        if (wordWebAudioRef.current.src) {
+          URL.revokeObjectURL(wordWebAudioRef.current.src);
+        }
+        wordWebAudioRef.current = null;
+      }
+    };
+  }, []);
 
   const toggleWord = useCallback((word: string) => {
     setActiveWords((prev) => {
@@ -187,7 +223,7 @@ export default function LearnScreen() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ text: currentLesson.paragraph }),
+          body: JSON.stringify({ text: currentLesson.paragraph, voice: selectedVoice }),
         });
 
         if (!response.ok) {
@@ -224,7 +260,7 @@ export default function LearnScreen() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ text: currentLesson.paragraph }),
+          body: JSON.stringify({ text: currentLesson.paragraph, voice: selectedVoice }),
         });
 
         if (!response.ok) {
@@ -263,6 +299,86 @@ export default function LearnScreen() {
       setIsPlaying(false);
     } finally {
       setIsLoadingAudio(false);
+    }
+  };
+
+  const handlePlayWordAudio = async (word: string) => {
+    if (playingWord) return;
+    
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    setPlayingWord(word);
+
+    try {
+      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+      
+      if (Platform.OS === "web") {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: word, voice: selectedVoice }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const blobUrl = URL.createObjectURL(audioBlob);
+        
+        if (wordWebAudioRef.current) {
+          wordWebAudioRef.current.pause();
+          URL.revokeObjectURL(wordWebAudioRef.current.src);
+        }
+        
+        const audio = new window.Audio(blobUrl);
+        wordWebAudioRef.current = audio;
+        
+        audio.onended = () => {
+          setPlayingWord(null);
+          URL.revokeObjectURL(blobUrl);
+        };
+        audio.onerror = () => {
+          setPlayingWord(null);
+          URL.revokeObjectURL(blobUrl);
+        };
+        
+        await audio.play();
+      } else {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: word, voice: selectedVoice }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          try {
+            const base64Data = (reader.result as string).split(",")[1];
+            const file = new File(Paths.cache, `word_audio_${Date.now()}.mp3`);
+            file.create({ overwrite: true });
+            file.write(base64Data, { encoding: 'base64' });
+            
+            setWordAudioUri(file.uri);
+            setShouldPlayWord(true);
+          } catch {
+            setPlayingWord(null);
+          }
+        };
+        
+        reader.onerror = () => setPlayingWord(null);
+        reader.readAsDataURL(audioBlob);
+      }
+    } catch {
+      setPlayingWord(null);
     }
   };
 
@@ -456,32 +572,53 @@ export default function LearnScreen() {
               </ThemedText>
             </View>
           </View>
+          <ThemedText
+            type="small"
+            style={[styles.chipInstruction, { color: theme.textSecondary }]}
+          >
+            Tap a word to hear its pronunciation
+          </ThemedText>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.chipsContainer}
           >
-            {currentLesson.words.slice(0, 10).map((wordItem, index) => (
-              <Pressable
-                key={index}
-                onPress={() => {
-                  if (Platform.OS !== "web") {
-                    Haptics.selectionAsync();
-                  }
-                }}
-                style={[styles.chip, { borderColor: theme.border }]}
-              >
-                <ThemedText type="body" style={{ fontWeight: "600" }}>
-                  {wordItem.word}
-                </ThemedText>
-                <ThemedText
-                  type="small"
-                  style={{ color: theme.phonetic, fontFamily: Fonts?.mono }}
+            {currentLesson.words.slice(0, 10).map((wordItem, index) => {
+              const isWordPlaying = playingWord === wordItem.word;
+              return (
+                <Pressable
+                  key={index}
+                  onPress={() => handlePlayWordAudio(wordItem.word)}
+                  disabled={playingWord !== null}
+                  style={[
+                    styles.chip, 
+                    { 
+                      borderColor: isWordPlaying ? theme.primary : theme.border,
+                      backgroundColor: isWordPlaying ? `${theme.primary}15` : 'transparent',
+                    }
+                  ]}
                 >
-                  {wordItem.phonetic}
-                </ThemedText>
-              </Pressable>
-            ))}
+                  <View style={styles.chipContent}>
+                    <View style={styles.chipTextContainer}>
+                      <ThemedText type="body" style={{ fontWeight: "600" }}>
+                        {wordItem.word}
+                      </ThemedText>
+                      <ThemedText
+                        type="small"
+                        style={{ color: theme.phonetic, fontFamily: Fonts?.mono }}
+                      >
+                        {wordItem.phonetic}
+                      </ThemedText>
+                    </View>
+                    {isWordPlaying ? (
+                      <ActivityIndicator size="small" color={theme.primary} style={styles.chipIcon} />
+                    ) : (
+                      <Feather name="volume-2" size={14} color={theme.textSecondary} style={styles.chipIcon} />
+                    )}
+                  </View>
+                </Pressable>
+              );
+            })}
           </ScrollView>
         </View>
       </ScrollView>
@@ -629,6 +766,19 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.sm,
     borderWidth: 1,
+  },
+  chipInstruction: {
+    marginBottom: Spacing.sm,
+  },
+  chipContent: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: Spacing.md,
+  },
+  chipTextContainer: {
+    alignItems: "center",
+  },
+  chipIcon: {
+    marginLeft: Spacing.xs,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -7,11 +7,14 @@ import {
   Alert,
   Platform,
   Linking,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useAudioPlayer } from "expo-audio";
+import { File, Paths } from "expo-file-system";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -19,17 +22,23 @@ import { Button } from "@/components/Button";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Fonts } from "@/constants/theme";
-import { useLessonStore } from "@/stores/lessonStore";
+import { useLessonStore, VOICE_OPTIONS, VoiceOption } from "@/stores/lessonStore";
+import { getApiUrl } from "@/lib/query-client";
 
 export default function SettingsScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const { apiKey, setApiKey } = useLessonStore();
+  const { apiKey, setApiKey, selectedVoice, setSelectedVoice } = useLessonStore();
   const [showApiKey, setShowApiKey] = useState(false);
   const [localApiKey, setLocalApiKey] = useState(apiKey);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
+  const [playingVoiceSample, setPlayingVoiceSample] = useState<VoiceOption | null>(null);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const webAudioRef = useRef<HTMLAudioElement | null>(null);
+  
+  const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
 
   const handleSaveApiKey = () => {
     setApiKey(localApiKey.trim());
@@ -83,6 +92,122 @@ export default function SettingsScreen() {
     } catch {
       Alert.alert("Error", "Could not open link");
     }
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (webAudioRef.current) {
+        webAudioRef.current.pause();
+        if (webAudioRef.current.src) {
+          URL.revokeObjectURL(webAudioRef.current.src);
+        }
+        webAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (Platform.OS !== "web" && player && playingVoiceSample) {
+      const checkStatus = () => {
+        if (player.playing === false && audioUri) {
+          setPlayingVoiceSample(null);
+        }
+      };
+      const interval = setInterval(checkStatus, 200);
+      return () => clearInterval(interval);
+    }
+  }, [player, playingVoiceSample, audioUri]);
+
+  const handlePlayVoiceSample = async (voiceId: VoiceOption) => {
+    if (playingVoiceSample) return;
+    
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    setPlayingVoiceSample(voiceId);
+
+    try {
+      const voiceName = VOICE_OPTIONS.find(v => v.id === voiceId)?.name || voiceId;
+      const sampleText = `Hello, I'm ${voiceName}. This is how I sound.`;
+      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+      
+      if (Platform.OS === "web") {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: sampleText, voice: voiceId }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const blobUrl = URL.createObjectURL(audioBlob);
+        
+        if (webAudioRef.current) {
+          webAudioRef.current.pause();
+          URL.revokeObjectURL(webAudioRef.current.src);
+        }
+        
+        const audio = new window.Audio(blobUrl);
+        webAudioRef.current = audio;
+        
+        audio.onended = () => {
+          setPlayingVoiceSample(null);
+          URL.revokeObjectURL(blobUrl);
+        };
+        audio.onerror = () => {
+          setPlayingVoiceSample(null);
+          URL.revokeObjectURL(blobUrl);
+        };
+        
+        await audio.play();
+      } else {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: sampleText, voice: voiceId }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          try {
+            const base64Data = (reader.result as string).split(",")[1];
+            const file = new File(Paths.cache, `voice_sample_${voiceId}_${Date.now()}.mp3`);
+            file.create({ overwrite: true });
+            file.write(base64Data, { encoding: 'base64' });
+            
+            setAudioUri(file.uri);
+            if (player) {
+              player.play();
+            }
+          } catch {
+            setPlayingVoiceSample(null);
+          }
+        };
+        
+        reader.onerror = () => setPlayingVoiceSample(null);
+        reader.readAsDataURL(audioBlob);
+      }
+    } catch {
+      setPlayingVoiceSample(null);
+      Alert.alert("Error", "Could not play voice sample");
+    }
+  };
+
+  const handleSelectVoice = (voiceId: VoiceOption) => {
+    if (Platform.OS !== "web") {
+      Haptics.selectionAsync();
+    }
+    setSelectedVoice(voiceId);
   };
 
   return (
@@ -179,6 +304,80 @@ export default function SettingsScreen() {
             >
               {isTesting ? "Testing..." : "Test Connection"}
             </Button>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <ThemedText type="h4" style={styles.sectionTitle}>
+            Voice Selection
+          </ThemedText>
+          <ThemedText
+            type="small"
+            style={[styles.sectionDescription, { color: theme.textSecondary }]}
+          >
+            Choose a voice for audio playback. Tap the play button to preview each voice.
+          </ThemedText>
+
+          <View style={styles.voiceCardsContainer}>
+            {VOICE_OPTIONS.map((voice) => (
+              <Pressable
+                key={voice.id}
+                onPress={() => handleSelectVoice(voice.id)}
+                style={[
+                  styles.voiceCard,
+                  { 
+                    backgroundColor: theme.backgroundSecondary,
+                    borderColor: selectedVoice === voice.id ? theme.primary : 'transparent',
+                    borderWidth: selectedVoice === voice.id ? 2 : 0,
+                  },
+                ]}
+              >
+                <View style={styles.voiceCardContent}>
+                  <View style={styles.voiceCardLeft}>
+                    {selectedVoice === voice.id ? (
+                      <View style={[styles.voiceCheckIcon, { backgroundColor: theme.primary }]}>
+                        <Feather name="check" size={12} color="#FFFFFF" />
+                      </View>
+                    ) : (
+                      <View style={[styles.voiceCheckIcon, { backgroundColor: theme.backgroundDefault }]}>
+                        <Feather name="mic" size={12} color={theme.textSecondary} />
+                      </View>
+                    )}
+                    <View>
+                      <ThemedText type="body" style={{ fontWeight: '600' }}>
+                        {voice.name}
+                      </ThemedText>
+                      <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                        {voice.description}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  <Pressable
+                    onPress={() => handlePlayVoiceSample(voice.id)}
+                    disabled={playingVoiceSample !== null}
+                    style={[
+                      styles.playVoiceButton,
+                      { 
+                        backgroundColor: playingVoiceSample === voice.id 
+                          ? theme.primary 
+                          : theme.backgroundDefault 
+                      },
+                    ]}
+                    hitSlop={8}
+                  >
+                    {playingVoiceSample === voice.id ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Feather 
+                        name="play" 
+                        size={16} 
+                        color={theme.primary} 
+                      />
+                    )}
+                  </Pressable>
+                </View>
+              </Pressable>
+            ))}
           </View>
         </View>
 
@@ -295,5 +494,37 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: Spacing.lg,
     borderRadius: BorderRadius.sm,
+  },
+  voiceCardsContainer: {
+    gap: Spacing.sm,
+  },
+  voiceCard: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.sm,
+  },
+  voiceCardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  voiceCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    flex: 1,
+  },
+  voiceCheckIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playVoiceButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
