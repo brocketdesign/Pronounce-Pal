@@ -432,7 +432,7 @@ export default function SettingsScreen() {
               <ThemedText type="body">App Version</ThemedText>
             </View>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              1.0.0
+              1.0.1
             </ThemedText>
           </View>
         </View>
