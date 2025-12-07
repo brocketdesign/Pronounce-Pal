@@ -72,6 +72,7 @@ function TappableWord({
       onPress={handlePress}
       style={styles.wordContainer}
       disabled={!hasPhonetic}
+      hitSlop={4}
     >
       <View
         style={[
@@ -197,6 +198,7 @@ function ParagraphDisplay({
                 key={`${sectionIndex}-chip-${index}`}
                 onPress={() => onPlayWordAudio(wordItem.word)}
                 disabled={playingWord !== null}
+                hitSlop={6}
                 style={[
                   styles.chip, 
                   { 
@@ -739,7 +741,7 @@ export default function LearnScreen() {
         <Pressable
           onPress={handleExtendLesson}
           disabled={isExtending}
-          hitSlop={8}
+          hitSlop={Platform.OS === "web" ? 12 : 8}
           style={[
             styles.extendButton,
             {
