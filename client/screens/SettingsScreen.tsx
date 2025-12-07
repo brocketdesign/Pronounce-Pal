@@ -30,6 +30,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const { apiKey, setApiKey, selectedVoice, setSelectedVoice } = useLessonStore();
+  const [localSelectedVoice, setLocalSelectedVoice] = useState<VoiceOption>(selectedVoice);
   const [showApiKey, setShowApiKey] = useState(false);
   const [localApiKey, setLocalApiKey] = useState(apiKey);
   const [isTesting, setIsTesting] = useState(false);
@@ -214,8 +215,15 @@ export default function SettingsScreen() {
     if (Platform.OS !== "web") {
       Haptics.selectionAsync();
     }
+    setLocalSelectedVoice(voiceId);
+    // Also update global store immediately so other screens reflect change
     setSelectedVoice(voiceId);
   };
+
+  React.useEffect(() => {
+    // keep local selection in sync if store selection changes externally
+    setLocalSelectedVoice(selectedVoice);
+  }, [selectedVoice]);
 
   return (
     <ThemedView style={styles.container}>
@@ -327,7 +335,7 @@ export default function SettingsScreen() {
 
           <View style={styles.voiceCardsContainer}>
             {VOICE_OPTIONS.map((voice) => {
-              const isSelected = selectedVoice === voice.id;
+              const isSelected = localSelectedVoice === voice.id;
               return (
                 <Pressable
                   key={voice.id}
