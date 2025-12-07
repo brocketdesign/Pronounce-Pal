@@ -739,6 +739,7 @@ export default function LearnScreen() {
         <Pressable
           onPress={handleExtendLesson}
           disabled={isExtending}
+          hitSlop={8}
           style={[
             styles.extendButton,
             {

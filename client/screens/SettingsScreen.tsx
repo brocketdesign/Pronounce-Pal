@@ -335,6 +335,7 @@ export default function SettingsScreen() {
                   testID={`voice-card-${voice.id}`}
                   accessibilityRole="button"
                   accessibilityLabel={`Select ${voice.name} voice`}
+                  hitSlop={8}
                   style={({ pressed }) => [
                     styles.voiceCard,
                     { 
