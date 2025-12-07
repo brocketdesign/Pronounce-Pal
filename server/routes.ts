@@ -98,6 +98,57 @@ Make sure to include common and challenging words for pronunciation. The phoneti
     }
   });
 
+  app.post("/api/text-to-speech", async (req, res) => {
+    try {
+      const { text } = req.body;
+
+      if (!text) {
+        return res.status(400).json({ message: "Text is required" });
+      }
+
+      const apiKey = process.env.OPENAI_API_KEY;
+
+      if (!apiKey) {
+        return res.status(400).json({ message: "OpenAI API key is not configured" });
+      }
+
+      const openai = new OpenAI({ apiKey });
+
+      const mp3Response = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: "alloy",
+        input: text,
+      });
+
+      const buffer = Buffer.from(await mp3Response.arrayBuffer());
+
+      res.set({
+        "Content-Type": "audio/mpeg",
+        "Content-Length": buffer.length,
+      });
+
+      res.send(buffer);
+    } catch (error: any) {
+      console.error("Text-to-speech error:", error);
+
+      if (error?.status === 401) {
+        return res.status(401).json({
+          message: "Invalid API key. Please check your OpenAI API key.",
+        });
+      }
+
+      if (error?.status === 429) {
+        return res.status(429).json({
+          message: "Rate limit exceeded. Please try again later.",
+        });
+      }
+
+      res.status(500).json({
+        message: error?.message || "Failed to generate audio",
+      });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

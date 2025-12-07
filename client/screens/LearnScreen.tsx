@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   ScrollView,
@@ -7,6 +7,7 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -14,6 +15,8 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useAudioPlayer } from "expo-audio";
+import { File, Paths } from "expo-file-system";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -21,6 +24,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Fonts, Typography } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useLessonStore, WordPhonetic } from "@/stores/lessonStore";
+import { getApiUrl } from "@/lib/query-client";
 
 if (
   Platform.OS === "android" &&
@@ -112,6 +116,33 @@ export default function LearnScreen() {
   const { currentLesson } = useLessonStore();
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
   const [showAllPhonetics, setShowAllPhonetics] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [shouldPlay, setShouldPlay] = useState(false);
+  const webAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
+
+  useEffect(() => {
+    if (shouldPlay && audioUri && player && Platform.OS !== "web") {
+      player.play();
+      setShouldPlay(false);
+    }
+  }, [audioUri, shouldPlay, player]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" && player) {
+      const checkStatus = () => {
+        if (player.playing === false && isPlaying && !isLoadingAudio) {
+          setIsPlaying(false);
+        }
+      };
+      const interval = setInterval(checkStatus, 500);
+      return () => clearInterval(interval);
+    }
+  }, [player, isPlaying, isLoadingAudio]);
 
   const toggleWord = useCallback((word: string) => {
     setActiveWords((prev) => {
@@ -135,6 +166,104 @@ export default function LearnScreen() {
 
   const handleShowWordsList = () => {
     navigation.navigate("WordsList");
+  };
+
+  const handlePlayAudio = async () => {
+    if (!currentLesson) return;
+    
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+
+    setIsLoadingAudio(true);
+    setAudioError(null);
+
+    try {
+      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+      
+      if (Platform.OS === "web") {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text: currentLesson.paragraph }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const blobUrl = URL.createObjectURL(audioBlob);
+        
+        if (webAudioRef.current) {
+          webAudioRef.current.pause();
+          URL.revokeObjectURL(webAudioRef.current.src);
+        }
+        
+        const audio = new window.Audio(blobUrl);
+        webAudioRef.current = audio;
+        
+        audio.onended = () => {
+          setIsPlaying(false);
+          URL.revokeObjectURL(blobUrl);
+        };
+        audio.onerror = () => {
+          setIsPlaying(false);
+          setAudioError("Failed to play audio");
+          URL.revokeObjectURL(blobUrl);
+        };
+        
+        setIsPlaying(true);
+        await audio.play();
+      } else {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text: currentLesson.paragraph }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          try {
+            const base64Data = (reader.result as string).split(",")[1];
+            const file = new File(Paths.cache, `tts_audio_${Date.now()}.mp3`);
+            file.create({ overwrite: true });
+            file.write(base64Data, { encoding: 'base64' });
+            
+            setAudioUri(file.uri);
+            setIsPlaying(true);
+            setShouldPlay(true);
+          } catch (err: any) {
+            setAudioError("Failed to save audio file");
+            setIsPlaying(false);
+          }
+        };
+        
+        reader.onerror = () => {
+          setAudioError("Failed to process audio");
+          setIsPlaying(false);
+        };
+        
+        reader.readAsDataURL(audioBlob);
+      }
+    } catch (error: any) {
+      setAudioError(error.message || "Failed to play audio");
+      setIsPlaying(false);
+    } finally {
+      setIsLoadingAudio(false);
+    }
   };
 
   if (!currentLesson) {
@@ -245,7 +374,49 @@ export default function LearnScreen() {
               {showAllPhonetics ? "Hide Phonetics" : "Show Phonetics"}
             </ThemedText>
           </Pressable>
+
+          <Pressable
+            onPress={handlePlayAudio}
+            disabled={isLoadingAudio || isPlaying}
+            style={[
+              styles.playButton,
+              {
+                backgroundColor: isPlaying
+                  ? theme.success
+                  : theme.primary,
+                opacity: isLoadingAudio ? 0.7 : 1,
+              },
+            ]}
+          >
+            {isLoadingAudio ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Feather
+                name={isPlaying ? "volume-2" : "play"}
+                size={16}
+                color="#FFFFFF"
+              />
+            )}
+            <ThemedText
+              type="small"
+              style={{
+                color: "#FFFFFF",
+                fontWeight: "500",
+              }}
+            >
+              {isLoadingAudio ? "Loading..." : isPlaying ? "Playing" : "Listen"}
+            </ThemedText>
+          </Pressable>
         </View>
+
+        {audioError ? (
+          <View style={[styles.errorBanner, { backgroundColor: `${theme.error}15` }]}>
+            <Feather name="alert-circle" size={14} color={theme.error} />
+            <ThemedText type="small" style={{ color: theme.error, flex: 1 }}>
+              {audioError}
+            </ThemedText>
+          </View>
+        ) : null}
 
         <View style={styles.paragraphContainer}>
           <ThemedText
@@ -378,6 +549,8 @@ const styles = StyleSheet.create({
   controlsRow: {
     flexDirection: "row",
     marginBottom: Spacing.xl,
+    gap: Spacing.sm,
+    flexWrap: "wrap",
   },
   toggleButton: {
     flexDirection: "row",
@@ -385,6 +558,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
+    gap: Spacing.sm,
+  },
+  playButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.sm,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.lg,
     gap: Spacing.sm,
   },
   paragraphContainer: {
