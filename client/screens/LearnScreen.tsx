@@ -118,6 +118,10 @@ interface ParagraphDisplayProps {
   selectedVoice: string;
   playingWord: string | null;
   onPlayWordAudio: (word: string) => void;
+  onPlayParagraphAudio: (index: number) => void;
+  isParagraphLoading: boolean;
+  isParagraphPlaying: boolean;
+  isLessonPlaying: boolean;
 }
 
 function ParagraphDisplay({
@@ -129,6 +133,10 @@ function ParagraphDisplay({
   selectedVoice,
   playingWord,
   onPlayWordAudio,
+  onPlayParagraphAudio,
+  isParagraphLoading,
+  isParagraphPlaying,
+  isLessonPlaying,
 }: ParagraphDisplayProps) {
   const { theme } = useTheme();
   const words = section.paragraph.split(" ");
@@ -147,6 +155,18 @@ function ParagraphDisplay({
         <ThemedText type="body" style={{ color: theme.textSecondary }}>
           Paragraph {sectionIndex + 1}
         </ThemedText>
+        <Pressable
+          onPress={() => onPlayParagraphAudio(sectionIndex)}
+          disabled={!section.paragraph || isParagraphLoading || isParagraphPlaying || isLessonPlaying || playingWord !== null}
+          hitSlop={6}
+          style={styles.paragraphListen}
+        >
+          {isParagraphLoading && isParagraphPlaying ? (
+            <ActivityIndicator size="small" color={theme.primary} />
+          ) : (
+            <Feather name="volume-2" size={16} color={theme.textSecondary} />
+          )}
+        </Pressable>
       </View>
       
       <View style={styles.paragraph}>
@@ -197,7 +217,7 @@ function ParagraphDisplay({
               <Pressable
                 key={`${sectionIndex}-chip-${index}`}
                 onPress={() => onPlayWordAudio(wordItem.word)}
-                disabled={playingWord !== null}
+                disabled={playingWord !== null || isParagraphLoading || isParagraphPlaying || isLessonPlaying}
                 hitSlop={6}
                 style={[
                   styles.chip, 
@@ -254,6 +274,11 @@ export default function LearnScreen() {
   const wordWebAudioRef = useRef<HTMLAudioElement | null>(null);
   const [wordAudioUri, setWordAudioUri] = useState<string | null>(null);
   const [shouldPlayWord, setShouldPlayWord] = useState(false);
+  const [playingParagraphIndex, setPlayingParagraphIndex] = useState<number | null>(null);
+  const paragraphWebAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [paragraphAudioUri, setParagraphAudioUri] = useState<string | null>(null);
+  const [shouldPlayParagraph, setShouldPlayParagraph] = useState(false);
+  const [isLoadingParagraphAudio, setIsLoadingParagraphAudio] = useState(false);
   const [extendError, setExtendError] = useState<string | null>(null);
   const [extendSuccess, setExtendSuccess] = useState(false);
   const [isAddingSectionLocal, setIsAddingSectionLocal] = useState(false);
@@ -284,6 +309,7 @@ export default function LearnScreen() {
 
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
   const wordPlayer = useAudioPlayer(wordAudioUri ? { uri: wordAudioUri } : null);
+  const paragraphPlayer = useAudioPlayer(paragraphAudioUri ? { uri: paragraphAudioUri } : null);
 
   useEffect(() => {
     if (shouldPlay && audioUri && player && Platform.OS !== "web") {
@@ -312,6 +338,26 @@ export default function LearnScreen() {
   }, [wordAudioUri, shouldPlayWord, wordPlayer]);
 
   useEffect(() => {
+    if (shouldPlayParagraph && paragraphAudioUri && paragraphPlayer && Platform.OS !== "web") {
+      paragraphPlayer.play();
+      setShouldPlayParagraph(false);
+    }
+  }, [paragraphAudioUri, shouldPlayParagraph, paragraphPlayer]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" && paragraphPlayer && playingParagraphIndex !== null) {
+      const checkStatus = () => {
+        if (paragraphPlayer.playing === false && paragraphAudioUri) {
+          setPlayingParagraphIndex(null);
+          setIsLoadingParagraphAudio(false);
+        }
+      };
+      const interval = setInterval(checkStatus, 200);
+      return () => clearInterval(interval);
+    }
+  }, [paragraphPlayer, playingParagraphIndex, paragraphAudioUri]);
+
+  useEffect(() => {
     if (Platform.OS !== "web" && wordPlayer && playingWord) {
       const checkStatus = () => {
         if (wordPlayer.playing === false && wordAudioUri) {
@@ -331,6 +377,13 @@ export default function LearnScreen() {
           URL.revokeObjectURL(wordWebAudioRef.current.src);
         }
         wordWebAudioRef.current = null;
+      }
+      if (paragraphWebAudioRef.current) {
+        paragraphWebAudioRef.current.pause();
+        if (paragraphWebAudioRef.current.src) {
+          URL.revokeObjectURL(paragraphWebAudioRef.current.src);
+        }
+        paragraphWebAudioRef.current = null;
       }
     };
   }, []);
@@ -541,6 +594,104 @@ export default function LearnScreen() {
     }
   };
 
+  const handlePlayParagraphAudio = async (index: number) => {
+    if (playingParagraphIndex !== null || isPlaying) return; // prevent overlapping playback
+    if (!currentLesson) return;
+
+    const paragraph = (localLesson ?? currentLesson).sections[index]?.paragraph;
+    if (!paragraph) return;
+
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    setPlayingParagraphIndex(index);
+    setIsLoadingParagraphAudio(true);
+
+    try {
+      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+
+      if (Platform.OS === "web") {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: paragraph, voice: selectedVoice }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const blobUrl = URL.createObjectURL(audioBlob);
+
+        if (paragraphWebAudioRef.current) {
+          paragraphWebAudioRef.current.pause();
+          if (paragraphWebAudioRef.current.src) {
+            URL.revokeObjectURL(paragraphWebAudioRef.current.src);
+          }
+        }
+
+        const audio = new window.Audio(blobUrl);
+        paragraphWebAudioRef.current = audio;
+
+        audio.onended = () => {
+          setPlayingParagraphIndex(null);
+          setIsLoadingParagraphAudio(false);
+          URL.revokeObjectURL(blobUrl);
+        };
+        audio.onerror = () => {
+          setPlayingParagraphIndex(null);
+          setIsLoadingParagraphAudio(false);
+          URL.revokeObjectURL(blobUrl);
+        };
+
+        setIsLoadingParagraphAudio(false);
+        await audio.play();
+      } else {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: paragraph, voice: selectedVoice }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const reader = new FileReader();
+
+        reader.onloadend = async () => {
+          try {
+            const base64Data = (reader.result as string).split(",")[1];
+            const fileUri = FileSystem.cacheDirectory + `paragraph_audio_${Date.now()}.mp3`;
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+
+            setParagraphAudioUri(fileUri);
+            setShouldPlayParagraph(true);
+            setIsLoadingParagraphAudio(false);
+          } catch (err) {
+            setPlayingParagraphIndex(null);
+            setIsLoadingParagraphAudio(false);
+          }
+        };
+
+        reader.onerror = () => {
+          setPlayingParagraphIndex(null);
+          setIsLoadingParagraphAudio(false);
+        };
+
+        reader.readAsDataURL(audioBlob);
+      }
+    } catch (err) {
+      setPlayingParagraphIndex(null);
+      setIsLoadingParagraphAudio(false);
+    }
+  };
+
   const handleExtendLesson = async () => {
     if (!currentLesson || isExtendingLocal || isExtending) return;
     
@@ -719,7 +870,7 @@ export default function LearnScreen() {
 
           <Pressable
             onPress={handlePlayAudio}
-            disabled={isLoadingAudio || isPlaying}
+            disabled={isLoadingAudio || isPlaying || playingParagraphIndex !== null || playingWord !== null}
             style={[
               styles.playButton,
               {
@@ -778,6 +929,10 @@ export default function LearnScreen() {
             selectedVoice={selectedVoice}
             playingWord={playingWord}
             onPlayWordAudio={handlePlayWordAudio}
+            onPlayParagraphAudio={handlePlayParagraphAudio}
+            isParagraphLoading={isLoadingParagraphAudio && playingParagraphIndex === index}
+            isParagraphPlaying={playingParagraphIndex === index}
+            isLessonPlaying={isPlaying}
           />
         ))}
 
@@ -983,6 +1138,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     marginBottom: Spacing.xl,
+  },
+  paragraphListen: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
   },
   wordContainer: {
     flexDirection: "row",
