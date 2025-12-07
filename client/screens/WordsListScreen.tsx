@@ -1,26 +1,35 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   View,
   StyleSheet,
   TextInput,
   FlatList,
   Pressable,
+  Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
+import { useAudioPlayer, AudioPlayer } from "expo-audio";
+import * as Haptics from "expo-haptics";
+import * as FileSystem from "expo-file-system";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Fonts } from "@/constants/theme";
 import { useLessonStore, WordPhonetic } from "@/stores/lessonStore";
+import { getApiUrl } from "@/lib/query-client";
 
 interface WordItemProps {
   item: WordPhonetic;
+  isPlaying: boolean;
+  isAnyPlaying: boolean;
+  onPlayAudio: (word: string) => void;
 }
 
-function WordItem({ item }: WordItemProps) {
+function WordItem({ item, isPlaying, isAnyPlaying, onPlayAudio }: WordItemProps) {
   const { theme } = useTheme();
 
   return (
@@ -36,9 +45,24 @@ function WordItem({ item }: WordItemProps) {
           {item.phonetic}
         </ThemedText>
       </View>
-      <View style={[styles.audioButton, { backgroundColor: theme.backgroundSecondary }]}>
-        <Feather name="volume-2" size={18} color={theme.textSecondary} />
-      </View>
+      <Pressable
+        onPress={() => onPlayAudio(item.word)}
+        disabled={isAnyPlaying}
+        style={[
+          styles.audioButton,
+          {
+            backgroundColor: isPlaying ? `${theme.primary}15` : theme.backgroundSecondary,
+            borderWidth: isPlaying ? 1 : 0,
+            borderColor: theme.primary,
+          },
+        ]}
+      >
+        {isPlaying ? (
+          <ActivityIndicator size="small" color={theme.primary} />
+        ) : (
+          <Feather name="volume-2" size={18} color={theme.textSecondary} style={{ opacity: isAnyPlaying ? 0.5 : 1 }} />
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -47,8 +71,125 @@ export default function WordsListScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const { currentLesson } = useLessonStore();
+  const { currentLesson, selectedVoice } = useLessonStore();
   const [searchQuery, setSearchQuery] = useState("");
+  const [playingWord, setPlayingWord] = useState<string | null>(null);
+  const [wordAudioUri, setWordAudioUri] = useState<string | null>(null);
+  const [shouldPlayWord, setShouldPlayWord] = useState(false);
+  const wordWebAudioRef = useRef<HTMLAudioElement | null>(null);
+  const wordAudioPlayer = useAudioPlayer(wordAudioUri ? { uri: wordAudioUri } : null);
+
+  useEffect(() => {
+    if (shouldPlayWord && wordAudioUri && wordAudioPlayer) {
+      setShouldPlayWord(false);
+      wordAudioPlayer.play();
+    }
+  }, [shouldPlayWord, wordAudioUri, wordAudioPlayer]);
+
+  useEffect(() => {
+    if (!wordAudioPlayer) return;
+    
+    const checkStatus = () => {
+      if (wordAudioPlayer.playing === false && playingWord && wordAudioUri) {
+        setPlayingWord(null);
+        setWordAudioUri(null);
+      }
+    };
+    
+    const interval = setInterval(checkStatus, 100);
+    return () => clearInterval(interval);
+  }, [wordAudioPlayer, playingWord, wordAudioUri]);
+
+  useEffect(() => {
+    return () => {
+      if (wordWebAudioRef.current) {
+        wordWebAudioRef.current.pause();
+        URL.revokeObjectURL(wordWebAudioRef.current.src);
+        wordWebAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  const handlePlayWordAudio = async (word: string) => {
+    if (playingWord) return;
+    
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    setPlayingWord(word);
+
+    try {
+      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+      
+      if (Platform.OS === "web") {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: word, voice: selectedVoice }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const blobUrl = URL.createObjectURL(audioBlob);
+        
+        if (wordWebAudioRef.current) {
+          wordWebAudioRef.current.pause();
+          URL.revokeObjectURL(wordWebAudioRef.current.src);
+        }
+        
+        const audio = new window.Audio(blobUrl);
+        wordWebAudioRef.current = audio;
+        
+        audio.onended = () => {
+          setPlayingWord(null);
+          URL.revokeObjectURL(blobUrl);
+        };
+        audio.onerror = () => {
+          setPlayingWord(null);
+          URL.revokeObjectURL(blobUrl);
+        };
+        
+        await audio.play();
+      } else {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: word, voice: selectedVoice }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate audio");
+        }
+
+        const audioBlob = await response.blob();
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          try {
+            const base64Data = (reader.result as string).split(",")[1];
+            const fileUri = FileSystem.cacheDirectory + `word_audio_${Date.now()}.mp3`;
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            
+            setWordAudioUri(fileUri);
+            setShouldPlayWord(true);
+          } catch {
+            setPlayingWord(null);
+          }
+        };
+        
+        reader.onerror = () => setPlayingWord(null);
+        reader.readAsDataURL(audioBlob);
+      }
+    } catch {
+      setPlayingWord(null);
+    }
+  };
 
   const words = currentLesson?.words || [];
 
@@ -104,7 +245,15 @@ export default function WordsListScreen() {
       );
     }
 
-    return <WordItem item={item.data as WordPhonetic} />;
+    const wordData = item.data as WordPhonetic;
+    return (
+      <WordItem
+        item={wordData}
+        isPlaying={playingWord === wordData.word}
+        isAnyPlaying={playingWord !== null}
+        onPlayAudio={handlePlayWordAudio}
+      />
+    );
   };
 
   return (
