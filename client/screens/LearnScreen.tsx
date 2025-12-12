@@ -254,19 +254,13 @@ function ParagraphDisplay({
   );
 }
 
-const audioCache = new Map<string, string>();
-const webAudioCache = new Map<string, Blob>();
-
-function getAudioCacheKey(text: string, voice: string): string {
-  return `${voice}:${text}`;
-}
-
 export default function LearnScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp>();
   const { currentLesson, selectedVoice, isExtending, addSection, setIsExtending, setError } = useLessonStore();
+  const [localLesson, setLocalLesson] = useState(currentLesson);
   const [isExtendingLocal, setIsExtendingLocal] = useState(false);
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
   const [showAllPhonetics, setShowAllPhonetics] = useState(false);
@@ -287,8 +281,31 @@ export default function LearnScreen() {
   const [isLoadingParagraphAudio, setIsLoadingParagraphAudio] = useState(false);
   const [extendError, setExtendError] = useState<string | null>(null);
   const [extendSuccess, setExtendSuccess] = useState(false);
+  const [isAddingSectionLocal, setIsAddingSectionLocal] = useState(false);
+
+  const handleAddSectionLocal = useCallback((section: ParagraphSection) => {
+    setIsAddingSectionLocal(true);
+    addSection(section);
+    // Also update local lesson copy immediately so the UI will reflect the new section
+    setLocalLesson((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        sections: [...prev.sections, section],
+      };
+    });
+    // Wait for next frame so UI has a chance to render the updated store state
+    // before we clear the local adding flag (this helps animations and prevents
+    // the flag from flipping too quickly which can hide UI updates).
+    requestAnimationFrame(() => {
+      setIsAddingSectionLocal(false);
+    });
+  }, [addSection]);
+
+  React.useEffect(() => {
+    setLocalLesson(currentLesson);
+  }, [currentLesson]);
   const scrollViewRef = useRef<ScrollView>(null);
-  const sectionsCount = currentLesson?.sections?.length ?? 0;
 
   const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
   const wordPlayer = useAudioPlayer(wordAudioUri ? { uri: wordAudioUri } : null);
@@ -396,7 +413,7 @@ export default function LearnScreen() {
   };
 
   const handlePlayAudio = async () => {
-    if (!currentLesson || currentLesson.sections.length === 0) return;
+    if (!currentLesson || (localLesson ?? currentLesson).sections.length === 0) return;
     
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -405,7 +422,7 @@ export default function LearnScreen() {
     setIsLoadingAudio(true);
     setAudioError(null);
 
-    const allParagraphs = currentLesson.sections.map((s: ParagraphSection) => s.paragraph).join(" ");
+    const allParagraphs = (localLesson ?? currentLesson).sections.map(s => s.paragraph).join(" ");
 
     try {
       const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
@@ -504,31 +521,11 @@ export default function LearnScreen() {
     }
 
     setPlayingWord(word);
-    const cacheKey = getAudioCacheKey(word, selectedVoice);
 
     try {
+      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+      
       if (Platform.OS === "web") {
-        const cachedBlob = webAudioCache.get(cacheKey);
-        if (cachedBlob) {
-          const blobUrl = URL.createObjectURL(cachedBlob);
-          if (wordWebAudioRef.current) {
-            wordWebAudioRef.current.pause();
-          }
-          const audio = new window.Audio(blobUrl);
-          wordWebAudioRef.current = audio;
-          audio.onended = () => {
-            setPlayingWord(null);
-            URL.revokeObjectURL(blobUrl);
-          };
-          audio.onerror = () => {
-            setPlayingWord(null);
-            URL.revokeObjectURL(blobUrl);
-          };
-          await audio.play();
-          return;
-        }
-
-        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -540,11 +537,11 @@ export default function LearnScreen() {
         }
 
         const audioBlob = await response.blob();
-        webAudioCache.set(cacheKey, audioBlob);
         const blobUrl = URL.createObjectURL(audioBlob);
         
         if (wordWebAudioRef.current) {
           wordWebAudioRef.current.pause();
+          URL.revokeObjectURL(wordWebAudioRef.current.src);
         }
         
         const audio = new window.Audio(blobUrl);
@@ -561,14 +558,6 @@ export default function LearnScreen() {
         
         await audio.play();
       } else {
-        const cachedUri = audioCache.get(cacheKey);
-        if (cachedUri) {
-          setWordAudioUri(cachedUri);
-          setShouldPlayWord(true);
-          return;
-        }
-
-        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -590,7 +579,6 @@ export default function LearnScreen() {
               encoding: FileSystem.EncodingType.Base64,
             });
             
-            audioCache.set(cacheKey, fileUri);
             setWordAudioUri(fileUri);
             setShouldPlayWord(true);
           } catch {
@@ -610,7 +598,7 @@ export default function LearnScreen() {
     if (playingParagraphIndex !== null || isPlaying) return; // prevent overlapping playback
     if (!currentLesson) return;
 
-    const paragraph = currentLesson.sections[index]?.paragraph;
+    const paragraph = (localLesson ?? currentLesson).sections[index]?.paragraph;
     if (!paragraph) return;
 
     if (Platform.OS !== "web") {
@@ -711,16 +699,18 @@ export default function LearnScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
+    // immediately mark local state to prevent re-entrancy before store updates
     setIsExtendingLocal(true);
     setIsExtending(true);
     setExtendError(null);
 
+    // ensure the loading placeholder is scrolled into view so users see feedback
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 50);
 
     try {
-      const existingParagraphs = currentLesson.sections.map(s => s.paragraph);
+      const existingParagraphs = (localLesson ?? currentLesson).sections.map(s => s.paragraph);
       
       const response = await apiRequest("POST", "/api/extend-lesson", {
         topic: currentLesson.topic,
@@ -733,12 +723,18 @@ export default function LearnScreen() {
         throw new Error(data.message || "Failed to extend lesson");
       }
 
+      console.log("Extend lesson response:", data);
+      console.log("Adding section with paragraph:", data.paragraph?.substring(0, 50));
+      console.log("Words count:", data.words?.length);
+
       if (data.paragraph && data.words) {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        addSection({
+        // Wrap addSection to show local UI state while adding
+        handleAddSectionLocal({
           paragraph: data.paragraph,
           words: data.words,
         });
+        console.log("Section added successfully");
         setExtendSuccess(true);
         setTimeout(() => setExtendSuccess(false), 3000);
         setTimeout(() => {
@@ -748,14 +744,17 @@ export default function LearnScreen() {
         throw new Error("Invalid response data - missing paragraph or words");
       }
     } catch (err: any) {
+      console.error("Extend lesson error:", err);
       setExtendError(err.message || "Failed to extend lesson");
     } finally {
       setIsExtending(false);
+      // clear local state after the store has been updated
       setIsExtendingLocal(false);
     }
   };
 
   React.useEffect(() => {
+    // keep local extend state in sync if store selection changes externally
     setIsExtendingLocal(isExtending);
   }, [isExtending]);
 
@@ -794,7 +793,7 @@ export default function LearnScreen() {
     );
   }
 
-  const totalWords = currentLesson.sections.reduce(
+  const totalWords = (localLesson ?? currentLesson).sections.reduce(
     (sum, s) => sum + s.words.length,
     0
   );
@@ -919,7 +918,7 @@ export default function LearnScreen() {
           Tap bold words to see pronunciation
         </ThemedText>
 
-        {currentLesson.sections.map((section, index) => (
+        {(localLesson ?? currentLesson).sections.map((section, index) => (
           <ParagraphDisplay
             key={`section-${index}`}
             section={section}
@@ -937,17 +936,28 @@ export default function LearnScreen() {
           />
         ))}
 
-        {isExtendingLocal ? (
+        {isExtendingLocal && (
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
               <ActivityIndicator size="small" color={theme.primary} />
               <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
-                Generating Paragraph {currentLesson.sections.length + 1}...
+                Generating Paragraph {(localLesson ?? currentLesson).sections.length + 1}...
               </ThemedText>
             </View>
             <View style={styles.paragraph}>
               <ThemedText style={{ color: theme.textSecondary }}>
                 Please wait while we create a new paragraph for your lesson.
+              </ThemedText>
+            </View>
+          </View>
+        )}
+
+        {isAddingSectionLocal ? (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
+                Adding paragraph...
               </ThemedText>
             </View>
           </View>
