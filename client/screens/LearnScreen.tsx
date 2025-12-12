@@ -314,7 +314,6 @@ export default function LearnScreen() {
   const [extendError, setExtendError] = useState<string | null>(null);
   const [extendSuccess, setExtendSuccess] = useState(false);
   const [isAddingSectionLocal, setIsAddingSectionLocal] = useState(false);
-  const [isCreatingNewLesson, setIsCreatingNewLesson] = useState(false);
 
   const handleAddSectionLocal = useCallback((section: ParagraphSection) => {
     setIsAddingSectionLocal(true);
@@ -902,53 +901,16 @@ export default function LearnScreen() {
   }, [isExtending]);
 
   const handleCreateNewLesson = async () => {
-    if (!currentLesson || isCreatingNewLesson || isLoading) return;
+    if (!currentLesson || isLoading) return;
     
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
-    setIsCreatingNewLesson(true);
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await apiRequest("POST", "/api/generate-lesson", {
-        topic: currentLesson.topic,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to generate new lesson");
-      }
-
-      const newLesson = {
-        id: generateLessonId(),
-        topic: currentLesson.topic,
-        icon: currentLesson.icon,
-        sections: [
-          {
-            paragraph: data.paragraph,
-            words: data.words,
-          },
-        ],
-        createdAt: new Date(),
-      };
-
-      addNewLessonToCache(newLesson);
-      if (Platform.OS === "web") {
-        audioCacheRef.current.forEach((url) => {
-          URL.revokeObjectURL(url);
-        });
-      }
-      audioCacheRef.current.clear();
-    } catch (err: any) {
-      setError(err.message || "Failed to generate new lesson");
-    } finally {
-      setIsCreatingNewLesson(false);
-      setIsLoading(false);
-    }
+    navigation.navigate("TopicCustomization", { 
+      topic: currentLesson.topic, 
+      icon: currentLesson.icon 
+    });
   };
 
   const handleSwitchLesson = (index: number) => {
@@ -1057,14 +1019,14 @@ export default function LearnScreen() {
               </ThemedText>
               <Pressable
                 onPress={handleCreateNewLesson}
-                disabled={isCreatingNewLesson || isLoading}
+                disabled={isLoading}
                 style={[
                   styles.newLessonButton,
                   { backgroundColor: theme.primary },
-                  (isCreatingNewLesson || isLoading) && { opacity: 0.6 },
+                  isLoading && { opacity: 0.6 },
                 ]}
               >
-                {isCreatingNewLesson ? (
+                {isLoading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
