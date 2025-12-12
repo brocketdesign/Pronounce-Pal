@@ -11,6 +11,7 @@ export interface ParagraphSection {
 }
 
 export interface Lesson {
+  id: string;
   topic: string;
   icon: string;
   sections: ParagraphSection[];
@@ -28,8 +29,15 @@ export const VOICE_OPTIONS: { id: VoiceOption; name: string; description: string
   { id: "shimmer", name: "Shimmer", description: "Clear and gentle" },
 ];
 
+function generateLessonId(): string {
+  return `lesson_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
 interface LessonStore {
   currentLesson: Lesson | null;
+  currentLessonIndex: number;
+  lessonsForTopic: Lesson[];
+  lessonCache: Map<string, Lesson[]>;
   recentTopics: string[];
   apiKey: string;
   selectedVoice: VoiceOption;
@@ -45,10 +53,16 @@ interface LessonStore {
   setIsExtending: (extending: boolean) => void;
   setError: (error: string | null) => void;
   clearLesson: () => void;
+  switchToLesson: (index: number) => void;
+  getLessonsForCurrentTopic: () => Lesson[];
+  addNewLessonToCache: (lesson: Lesson) => void;
+  generateLessonId: () => string;
 }
 
 let globalState: {
   currentLesson: Lesson | null;
+  currentLessonIndex: number;
+  lessonCache: Map<string, Lesson[]>;
   recentTopics: string[];
   apiKey: string;
   selectedVoice: VoiceOption;
@@ -58,6 +72,8 @@ let globalState: {
   version: number;
 } = {
   currentLesson: null,
+  currentLessonIndex: 0,
+  lessonCache: new Map(),
   recentTopics: [],
   apiKey: "",
   selectedVoice: "alloy",
@@ -86,8 +102,67 @@ export function useLessonStore(): LessonStore {
   }, []);
 
   const setCurrentLesson = useCallback((lesson: Lesson | null) => {
-    globalState = { ...globalState, currentLesson: lesson };
+    if (lesson) {
+      const topic = lesson.topic.toLowerCase();
+      const existingLessons = globalState.lessonCache.get(topic) || [];
+      const existingIndex = existingLessons.findIndex(l => l.id === lesson.id);
+      
+      if (existingIndex === -1) {
+        const updatedLessons = [...existingLessons, lesson];
+        globalState.lessonCache.set(topic, updatedLessons);
+        globalState = { 
+          ...globalState, 
+          currentLesson: lesson,
+          currentLessonIndex: updatedLessons.length - 1
+        };
+      } else {
+        existingLessons[existingIndex] = lesson;
+        globalState.lessonCache.set(topic, existingLessons);
+        globalState = { 
+          ...globalState, 
+          currentLesson: lesson,
+          currentLessonIndex: existingIndex
+        };
+      }
+    } else {
+      globalState = { ...globalState, currentLesson: null, currentLessonIndex: 0 };
+    }
     notifyListeners();
+  }, []);
+
+  const addNewLessonToCache = useCallback((lesson: Lesson) => {
+    const topic = lesson.topic.toLowerCase();
+    const existingLessons = globalState.lessonCache.get(topic) || [];
+    const updatedLessons = [...existingLessons, lesson];
+    globalState.lessonCache.set(topic, updatedLessons);
+    globalState = { 
+      ...globalState, 
+      currentLesson: lesson,
+      currentLessonIndex: updatedLessons.length - 1
+    };
+    notifyListeners();
+  }, []);
+
+  const switchToLesson = useCallback((index: number) => {
+    if (!globalState.currentLesson) return;
+    
+    const topic = globalState.currentLesson.topic.toLowerCase();
+    const lessons = globalState.lessonCache.get(topic) || [];
+    
+    if (index >= 0 && index < lessons.length) {
+      globalState = {
+        ...globalState,
+        currentLesson: lessons[index],
+        currentLessonIndex: index
+      };
+      notifyListeners();
+    }
+  }, []);
+
+  const getLessonsForCurrentTopic = useCallback(() => {
+    if (!globalState.currentLesson) return [];
+    const topic = globalState.currentLesson.topic.toLowerCase();
+    return globalState.lessonCache.get(topic) || [];
   }, []);
 
   const addRecentTopic = useCallback((topic: string) => {
@@ -134,12 +209,23 @@ export function useLessonStore(): LessonStore {
       return;
     }
     
+    const updatedLesson = {
+      ...globalState.currentLesson,
+      sections: [...globalState.currentLesson.sections, section],
+    };
+    
+    const topic = updatedLesson.topic.toLowerCase();
+    const existingLessons = globalState.lessonCache.get(topic) || [];
+    const lessonIndex = existingLessons.findIndex(l => l.id === updatedLesson.id);
+    
+    if (lessonIndex !== -1) {
+      existingLessons[lessonIndex] = updatedLesson;
+      globalState.lessonCache.set(topic, existingLessons);
+    }
+    
     globalState = {
       ...globalState,
-      currentLesson: {
-        ...globalState.currentLesson,
-        sections: [...globalState.currentLesson.sections, section],
-      },
+      currentLesson: updatedLesson,
     };
     
     console.log("Updated sections count:", globalState.currentLesson?.sections?.length);
@@ -148,12 +234,19 @@ export function useLessonStore(): LessonStore {
   }, []);
 
   const clearLesson = useCallback(() => {
-    globalState = { ...globalState, currentLesson: null, error: null };
+    globalState = { ...globalState, currentLesson: null, currentLessonIndex: 0, error: null };
     notifyListeners();
   }, []);
 
+  const lessonsForTopic = globalState.currentLesson 
+    ? (globalState.lessonCache.get(globalState.currentLesson.topic.toLowerCase()) || [])
+    : [];
+
   return {
     currentLesson: globalState.currentLesson,
+    currentLessonIndex: globalState.currentLessonIndex,
+    lessonsForTopic,
+    lessonCache: globalState.lessonCache,
     recentTopics: globalState.recentTopics,
     apiKey: globalState.apiKey,
     selectedVoice: globalState.selectedVoice,
@@ -169,5 +262,9 @@ export function useLessonStore(): LessonStore {
     setIsExtending,
     setError,
     clearLesson,
+    switchToLesson,
+    getLessonsForCurrentTopic,
+    addNewLessonToCache,
+    generateLessonId,
   };
 }

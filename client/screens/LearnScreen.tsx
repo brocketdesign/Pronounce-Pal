@@ -259,7 +259,21 @@ export default function LearnScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp>();
-  const { currentLesson, selectedVoice, isExtending, addSection, setIsExtending, setError } = useLessonStore();
+  const { 
+    currentLesson, 
+    selectedVoice, 
+    isExtending, 
+    addSection, 
+    setIsExtending, 
+    setError,
+    lessonsForTopic,
+    currentLessonIndex,
+    switchToLesson,
+    addNewLessonToCache,
+    generateLessonId,
+    setIsLoading,
+    isLoading,
+  } = useLessonStore();
   const [localLesson, setLocalLesson] = useState(currentLesson);
   const [isExtendingLocal, setIsExtendingLocal] = useState(false);
   const [activeWords, setActiveWords] = useState<Set<string>>(new Set());
@@ -300,6 +314,7 @@ export default function LearnScreen() {
   const [extendError, setExtendError] = useState<string | null>(null);
   const [extendSuccess, setExtendSuccess] = useState(false);
   const [isAddingSectionLocal, setIsAddingSectionLocal] = useState(false);
+  const [isCreatingNewLesson, setIsCreatingNewLesson] = useState(false);
 
   const handleAddSectionLocal = useCallback((section: ParagraphSection) => {
     setIsAddingSectionLocal(true);
@@ -886,6 +901,72 @@ export default function LearnScreen() {
     setIsExtendingLocal(isExtending);
   }, [isExtending]);
 
+  const handleCreateNewLesson = async () => {
+    if (!currentLesson || isCreatingNewLesson || isLoading) return;
+    
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+
+    setIsCreatingNewLesson(true);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await apiRequest("POST", "/api/generate-lesson", {
+        topic: currentLesson.topic,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to generate new lesson");
+      }
+
+      const newLesson = {
+        id: generateLessonId(),
+        topic: currentLesson.topic,
+        icon: currentLesson.icon,
+        sections: [
+          {
+            paragraph: data.paragraph,
+            words: data.words,
+          },
+        ],
+        createdAt: new Date(),
+      };
+
+      addNewLessonToCache(newLesson);
+      if (Platform.OS === "web") {
+        audioCacheRef.current.forEach((url) => {
+          URL.revokeObjectURL(url);
+        });
+      }
+      audioCacheRef.current.clear();
+    } catch (err: any) {
+      setError(err.message || "Failed to generate new lesson");
+    } finally {
+      setIsCreatingNewLesson(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleSwitchLesson = (index: number) => {
+    if (index === currentLessonIndex) return;
+    
+    if (Platform.OS !== "web") {
+      Haptics.selectionAsync();
+    }
+    
+    if (Platform.OS === "web") {
+      audioCacheRef.current.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+    }
+    audioCacheRef.current.clear();
+    switchToLesson(index);
+  };
+
   if (!currentLesson) {
     return (
       <ThemedView style={styles.container}>
@@ -967,6 +1048,79 @@ export default function LearnScreen() {
             </ThemedText>
           </Pressable>
         </View>
+
+        {lessonsForTopic.length > 0 ? (
+          <View style={styles.lessonSwitcherContainer}>
+            <View style={styles.lessonSwitcherHeader}>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Lessons for this topic
+              </ThemedText>
+              <Pressable
+                onPress={handleCreateNewLesson}
+                disabled={isCreatingNewLesson || isLoading}
+                style={[
+                  styles.newLessonButton,
+                  { backgroundColor: theme.primary },
+                  (isCreatingNewLesson || isLoading) && { opacity: 0.6 },
+                ]}
+              >
+                {isCreatingNewLesson ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Feather name="plus" size={14} color="#FFFFFF" />
+                    <ThemedText type="small" style={{ color: "#FFFFFF", fontWeight: "600" }}>
+                      New
+                    </ThemedText>
+                  </>
+                )}
+              </Pressable>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.lessonPillsContainer}
+            >
+              {lessonsForTopic.map((lesson, index) => {
+                const isActive = index === currentLessonIndex;
+                const createdAt = new Date(lesson.createdAt);
+                const timeStr = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return (
+                  <Pressable
+                    key={lesson.id}
+                    onPress={() => handleSwitchLesson(index)}
+                    style={[
+                      styles.lessonPill,
+                      {
+                        backgroundColor: isActive ? theme.primary : theme.backgroundSecondary,
+                        borderColor: isActive ? theme.primary : theme.border,
+                      },
+                    ]}
+                  >
+                    <ThemedText
+                      type="small"
+                      style={{
+                        color: isActive ? "#FFFFFF" : theme.text,
+                        fontWeight: isActive ? "600" : "400",
+                      }}
+                    >
+                      Lesson {index + 1}
+                    </ThemedText>
+                    <ThemedText
+                      type="small"
+                      style={{
+                        color: isActive ? "rgba(255,255,255,0.7)" : theme.textSecondary,
+                        fontSize: 10,
+                      }}
+                    >
+                      {timeStr}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
 
         <View style={styles.controlsRow}>
           <Pressable
@@ -1341,5 +1495,34 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     marginTop: Spacing.lg,
     marginBottom: Spacing.xl,
+  },
+  lessonSwitcherContainer: {
+    marginBottom: Spacing.lg,
+  },
+  lessonSwitcherHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  newLessonButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.xs,
+  },
+  lessonPillsContainer: {
+    gap: Spacing.sm,
+    paddingRight: Spacing.xl,
+  },
+  lessonPill: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    minWidth: 80,
   },
 });

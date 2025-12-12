@@ -37,6 +37,7 @@ export default function GenerateLessonScreen() {
     setIsLoading,
     error,
     setError,
+    generateLessonId,
   } = useLessonStore();
 
   const [status, setStatus] = useState<"loading" | "error">("loading");
@@ -64,6 +65,7 @@ export default function GenerateLessonScreen() {
       }
 
       const lesson: Lesson = {
+        id: generateLessonId(),
         topic,
         icon,
         sections: [
