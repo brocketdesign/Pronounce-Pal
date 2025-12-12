@@ -279,6 +279,24 @@ export default function LearnScreen() {
   const [paragraphAudioUri, setParagraphAudioUri] = useState<string | null>(null);
   const [shouldPlayParagraph, setShouldPlayParagraph] = useState(false);
   const [isLoadingParagraphAudio, setIsLoadingParagraphAudio] = useState(false);
+  
+  // Audio cache - stores blob URLs (web) or file URIs (native) keyed by text
+  const audioCacheRef = useRef<Map<string, string>>(new Map());
+  const cachedVoiceRef = useRef<string>(selectedVoice);
+  
+  // Clear cache when voice changes
+  useEffect(() => {
+    if (cachedVoiceRef.current !== selectedVoice) {
+      // Revoke all cached blob URLs on web
+      if (Platform.OS === "web") {
+        audioCacheRef.current.forEach((url) => {
+          URL.revokeObjectURL(url);
+        });
+      }
+      audioCacheRef.current.clear();
+      cachedVoiceRef.current = selectedVoice;
+    }
+  }, [selectedVoice]);
   const [extendError, setExtendError] = useState<string | null>(null);
   const [extendSuccess, setExtendSuccess] = useState(false);
   const [isAddingSectionLocal, setIsAddingSectionLocal] = useState(false);
@@ -423,11 +441,37 @@ export default function LearnScreen() {
     setAudioError(null);
 
     const allParagraphs = (localLesson ?? currentLesson).sections.map(s => s.paragraph).join(" ");
+    const cacheKey = `full:${allParagraphs}`;
 
     try {
-      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+      // Check cache first
+      const cachedUrl = audioCacheRef.current.get(cacheKey);
       
       if (Platform.OS === "web") {
+        if (cachedUrl) {
+          // Use cached audio
+          if (webAudioRef.current) {
+            webAudioRef.current.pause();
+          }
+          
+          const audio = new window.Audio(cachedUrl);
+          webAudioRef.current = audio;
+          
+          audio.onended = () => {
+            setIsPlaying(false);
+          };
+          audio.onerror = () => {
+            setIsPlaying(false);
+            setAudioError("Failed to play audio");
+          };
+          
+          setIsPlaying(true);
+          setIsLoadingAudio(false);
+          await audio.play();
+          return;
+        }
+        
+        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: {
@@ -444,9 +488,11 @@ export default function LearnScreen() {
         const audioBlob = await response.blob();
         const blobUrl = URL.createObjectURL(audioBlob);
         
+        // Store in cache
+        audioCacheRef.current.set(cacheKey, blobUrl);
+        
         if (webAudioRef.current) {
           webAudioRef.current.pause();
-          URL.revokeObjectURL(webAudioRef.current.src);
         }
         
         const audio = new window.Audio(blobUrl);
@@ -454,17 +500,25 @@ export default function LearnScreen() {
         
         audio.onended = () => {
           setIsPlaying(false);
-          URL.revokeObjectURL(blobUrl);
         };
         audio.onerror = () => {
           setIsPlaying(false);
           setAudioError("Failed to play audio");
-          URL.revokeObjectURL(blobUrl);
         };
         
         setIsPlaying(true);
         await audio.play();
       } else {
+        if (cachedUrl) {
+          // Use cached file URI
+          setAudioUri(cachedUrl);
+          setIsPlaying(true);
+          setShouldPlay(true);
+          setIsLoadingAudio(false);
+          return;
+        }
+        
+        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: {
@@ -488,6 +542,9 @@ export default function LearnScreen() {
             await FileSystem.writeAsStringAsync(fileUri, base64Data, {
               encoding: FileSystem.EncodingType.Base64,
             });
+            
+            // Store in cache
+            audioCacheRef.current.set(cacheKey, fileUri);
             
             setAudioUri(fileUri);
             setIsPlaying(true);
@@ -521,11 +578,34 @@ export default function LearnScreen() {
     }
 
     setPlayingWord(word);
+    const cacheKey = `word:${word}`;
 
     try {
-      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
+      // Check cache first
+      const cachedUrl = audioCacheRef.current.get(cacheKey);
       
       if (Platform.OS === "web") {
+        if (cachedUrl) {
+          // Use cached audio
+          if (wordWebAudioRef.current) {
+            wordWebAudioRef.current.pause();
+          }
+          
+          const audio = new window.Audio(cachedUrl);
+          wordWebAudioRef.current = audio;
+          
+          audio.onended = () => {
+            setPlayingWord(null);
+          };
+          audio.onerror = () => {
+            setPlayingWord(null);
+          };
+          
+          await audio.play();
+          return;
+        }
+        
+        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -539,9 +619,11 @@ export default function LearnScreen() {
         const audioBlob = await response.blob();
         const blobUrl = URL.createObjectURL(audioBlob);
         
+        // Store in cache
+        audioCacheRef.current.set(cacheKey, blobUrl);
+        
         if (wordWebAudioRef.current) {
           wordWebAudioRef.current.pause();
-          URL.revokeObjectURL(wordWebAudioRef.current.src);
         }
         
         const audio = new window.Audio(blobUrl);
@@ -549,15 +631,21 @@ export default function LearnScreen() {
         
         audio.onended = () => {
           setPlayingWord(null);
-          URL.revokeObjectURL(blobUrl);
         };
         audio.onerror = () => {
           setPlayingWord(null);
-          URL.revokeObjectURL(blobUrl);
         };
         
         await audio.play();
       } else {
+        if (cachedUrl) {
+          // Use cached file URI
+          setWordAudioUri(cachedUrl);
+          setShouldPlayWord(true);
+          return;
+        }
+        
+        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -578,6 +666,9 @@ export default function LearnScreen() {
             await FileSystem.writeAsStringAsync(fileUri, base64Data, {
               encoding: FileSystem.EncodingType.Base64,
             });
+            
+            // Store in cache
+            audioCacheRef.current.set(cacheKey, fileUri);
             
             setWordAudioUri(fileUri);
             setShouldPlayWord(true);
@@ -607,11 +698,38 @@ export default function LearnScreen() {
 
     setPlayingParagraphIndex(index);
     setIsLoadingParagraphAudio(true);
+    
+    const cacheKey = `para:${index}:${paragraph}`;
 
     try {
-      const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
-
+      // Check cache first
+      const cachedUrl = audioCacheRef.current.get(cacheKey);
+      
       if (Platform.OS === "web") {
+        if (cachedUrl) {
+          // Use cached audio
+          if (paragraphWebAudioRef.current) {
+            paragraphWebAudioRef.current.pause();
+          }
+          
+          const audio = new window.Audio(cachedUrl);
+          paragraphWebAudioRef.current = audio;
+          
+          audio.onended = () => {
+            setPlayingParagraphIndex(null);
+            setIsLoadingParagraphAudio(false);
+          };
+          audio.onerror = () => {
+            setPlayingParagraphIndex(null);
+            setIsLoadingParagraphAudio(false);
+          };
+          
+          setIsLoadingParagraphAudio(false);
+          await audio.play();
+          return;
+        }
+        
+        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -624,12 +742,12 @@ export default function LearnScreen() {
 
         const audioBlob = await response.blob();
         const blobUrl = URL.createObjectURL(audioBlob);
+        
+        // Store in cache
+        audioCacheRef.current.set(cacheKey, blobUrl);
 
         if (paragraphWebAudioRef.current) {
           paragraphWebAudioRef.current.pause();
-          if (paragraphWebAudioRef.current.src) {
-            URL.revokeObjectURL(paragraphWebAudioRef.current.src);
-          }
         }
 
         const audio = new window.Audio(blobUrl);
@@ -638,17 +756,24 @@ export default function LearnScreen() {
         audio.onended = () => {
           setPlayingParagraphIndex(null);
           setIsLoadingParagraphAudio(false);
-          URL.revokeObjectURL(blobUrl);
         };
         audio.onerror = () => {
           setPlayingParagraphIndex(null);
           setIsLoadingParagraphAudio(false);
-          URL.revokeObjectURL(blobUrl);
         };
 
         setIsLoadingParagraphAudio(false);
         await audio.play();
       } else {
+        if (cachedUrl) {
+          // Use cached file URI
+          setParagraphAudioUri(cachedUrl);
+          setShouldPlayParagraph(true);
+          setIsLoadingParagraphAudio(false);
+          return;
+        }
+        
+        const apiUrl = new URL("/api/text-to-speech", getApiUrl()).toString();
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -669,6 +794,9 @@ export default function LearnScreen() {
             await FileSystem.writeAsStringAsync(fileUri, base64Data, {
               encoding: FileSystem.EncodingType.Base64,
             });
+            
+            // Store in cache
+            audioCacheRef.current.set(cacheKey, fileUri);
 
             setParagraphAudioUri(fileUri);
             setShouldPlayParagraph(true);
