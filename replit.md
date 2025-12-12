@@ -36,6 +36,9 @@ SpeakEasy is a mobile application that helps users improve their English pronunc
 3. IPA phonetic transcriptions for vocabulary
 4. Tap-to-reveal phonetics on words
 5. User-provided API key support
+6. Audio playback with intelligent caching (instant replay without new API requests)
+7. Multiple lessons per topic with seamless switching
+8. Automatic cache reset when voice selection changes
 
 ## Design System
 - **Colors**: Deep Blue primary (#2563EB), Purple secondary (#7C3AED)
