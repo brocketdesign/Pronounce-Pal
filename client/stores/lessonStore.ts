@@ -113,15 +113,17 @@ export function useLessonStore(): LessonStore {
         globalState = { 
           ...globalState, 
           currentLesson: lesson,
-          currentLessonIndex: updatedLessons.length - 1
+          currentLessonIndex: 0
         };
       } else {
         existingLessons[existingIndex] = lesson;
         globalState.lessonCache.set(topic, existingLessons);
+        const sortedLessons = [...existingLessons].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        const sortedIndex = sortedLessons.findIndex(l => l.id === lesson.id);
         globalState = { 
           ...globalState, 
           currentLesson: lesson,
-          currentLessonIndex: existingIndex
+          currentLessonIndex: sortedIndex
         };
       }
     } else {
@@ -138,7 +140,7 @@ export function useLessonStore(): LessonStore {
     globalState = { 
       ...globalState, 
       currentLesson: lesson,
-      currentLessonIndex: updatedLessons.length - 1
+      currentLessonIndex: 0
     };
     notifyListeners();
   }, []);
@@ -147,7 +149,7 @@ export function useLessonStore(): LessonStore {
     if (!globalState.currentLesson) return;
     
     const topic = globalState.currentLesson.topic.toLowerCase();
-    const lessons = globalState.lessonCache.get(topic) || [];
+    const lessons = (globalState.lessonCache.get(topic) || []).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     
     if (index >= 0 && index < lessons.length) {
       globalState = {
@@ -239,7 +241,7 @@ export function useLessonStore(): LessonStore {
   }, []);
 
   const lessonsForTopic = globalState.currentLesson 
-    ? (globalState.lessonCache.get(globalState.currentLesson.topic.toLowerCase()) || [])
+    ? (globalState.lessonCache.get(globalState.currentLesson.topic.toLowerCase()) || []).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     : [];
 
   return {
